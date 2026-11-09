@@ -30,11 +30,12 @@ Example config.toml:
     [models.bias]
     lam = 1.0
 """
+
 import functools
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import PrivateAttr, field_validator
 from pydantic_settings import (
@@ -44,7 +45,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from .paths import DEFAULT_FILE, REPO_ROOT, Paths, Split
+from .paths import DEFAULT_FILE, REPO_ROOT, Evaluation, Paths, Split
 
 
 class Config(BaseSettings):
@@ -56,10 +57,12 @@ class Config(BaseSettings):
         frozen=True,
     )
 
-    dataset: str = ""  # a key in scripts/get_data DATASETS
+    dataset: str = ""  # a key in LOADERS (modules/core/datasets.py)
+    task: Literal["rating", "binary", "ranking"] = "rating"  # selects the target and metrics
     seed: int = 258
     paths: Paths = Paths()
     split: Split = Split()
+    evaluation: Evaluation = Evaluation()
     models: dict[str, dict[str, Any]] = {}  # [models.<name>] hyperparameters
 
     # Set by load(); not a setting.
@@ -97,8 +100,7 @@ class Config(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        toml = TomlConfigSettingsSource(
-            settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
+        toml = TomlConfigSettingsSource(settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
         return (init_settings, env_settings, dotenv_settings, toml)
 
 

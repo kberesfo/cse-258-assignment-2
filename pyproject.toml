@@ -1,7 +1,7 @@
 [project]
 name = "assignment-2"
 version = "0.1.0"
-description = "Add your description here"
+description = "CSE 258 Assignment 2"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -29,6 +29,7 @@ dev = [
     "ipywidgets>=8.1.9",
     "jupytext>=1.19.6",
     "nbconvert>=7.17.1",
+    "pytest>=9.2.0",
     "ruff>=0.17.3",
 ]
 
@@ -39,6 +40,9 @@ assignment-2 = "assignment_2.cli:main"
 requires = ["uv_build>=0.13.6,<0.14.0"]
 
 build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
 
 [tool.ruff.lint]
 extend-select = ["I"]

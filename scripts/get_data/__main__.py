@@ -1,23 +1,20 @@
-"""Ensure project datasets exist in DATA_DIR (<repo>/data by default).
+"""Download the dataset named in config.toml into the configured data directory.
 
-Safe to re-run: datasets already present are skipped. Works the same locally and
-in Codespaces, and is run by postCreateCommand (via `make data`).
+Safe to re-run: datasets already present are skipped. `make data` and the devcontainer
+both run this. Datasets that need no download, like `synthetic`, are simply not listed.
 
-    uv run python scripts/get_data.py                 # fetch the ACTIVE datasets
-    uv run python scripts/get_data.py modcloth steam  # fetch specific candidates
-    uv run python scripts/get_data.py --all           # fetch every candidate
-    uv run python scripts/get_data.py --list          # show status of every candidate
-    uv run python scripts/get_data.py --force         # re-download, even if present
+    uv run python scripts/get_data                # fetch config.toml's dataset
+    uv run python scripts/get_data modcloth       # fetch a specific entry
+    uv run python scripts/get_data --list         # show the status of every entry
+    uv run python scripts/get_data --force        # re-download, even if present
 
-Files are kept as downloaded (e.g. .json.gz stays compressed); loaders in src/ read
-them directly. .zip and .tar.gz archives are extracted. Add a sha256 to a File to pin its exact bytes.
+Files are kept as downloaded (e.g. .json.gz stays compressed); loaders in
+modules/core/datasets.py read them directly. .zip and .tar.gz archives are extracted.
+Add a sha256 to a File to pin its exact bytes.
 """
 
-import ast
 import gzip
 import hashlib
-import json
-import os
 import shutil
 import sys
 import tarfile
@@ -27,10 +24,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-# Swap for your package config once it exists, e.g.
-#   from assignment_2.modules.config import config; DATA_DIR = config.paths.data_dir
-DATA_DIR = Path(os.environ.get("DATA_DIR", REPO_ROOT / "data")).resolve()
+from assignment_2.modules.config import get_config
+from assignment_2.modules.core.datasets import parse_record
+
+CONFIG = get_config()
+DATA_DIR = CONFIG.paths.data_dir
 
 
 @dataclass(frozen=True)
@@ -46,22 +44,11 @@ class File:
 @dataclass(frozen=True)
 class Dataset:
     note: str
-    files: tuple[File, ...] = field(default_factory=tuple)  # empty = manual download
+    files: tuple[File, ...] = field(
+        default_factory=tuple)  # empty = manual download
     citation: str = ""
-    check: Callable[[Path], str] | None = None  # quick parse; returns a one-line summary
-
-
-# ---------------------------------------------------------------------------
-# Sanity checks: confirm the files parse. Not the real loaders (those live in src/).
-# ---------------------------------------------------------------------------
-
-
-def parse_record(line: str) -> dict:
-    # Many course datasets are one Python dict literal per line, not strict JSON.
-    try:
-        return json.loads(line)
-    except json.JSONDecodeError:
-        return ast.literal_eval(line)
+    # quick parse; returns a one-line summary
+    check: Callable[[Path], str] | None = None
 
 
 def check_jsonl_gz(dest: Path) -> str:
@@ -78,108 +65,21 @@ def check_jsonl_gz(dest: Path) -> str:
     return "; ".join(parts) or "no .json.gz files found"
 
 
-# ---------------------------------------------------------------------------
-# Registry: candidates from https://cseweb.ucsd.edu/~jmcauley/datasets.html that have
-# direct download links. Sizes are interaction counts from that page, not file sizes.
-# Citations are from memory: confirm against the page before quoting them in the writeup.
-# Datasets hosted on Kaggle / Hugging Face / Google Drive folders are left out; add them
-# as manual entries (no files) if the group picks one.
-# ---------------------------------------------------------------------------
-
-MCAULEY = "https://mcauleylab.ucsd.edu/public_datasets/data"
-
+# Add the group's dataset here, using the same key as its loader in LOADERS.
+# Options and links: https://cseweb.ucsd.edu/~jmcauley/datasets.html
 DATASETS: dict[str, Dataset] = {
     # "modcloth": Dataset(
     #     note="ModCloth clothing fit feedback (~83K transactions)",
-    #     files=(File(f"{MCAULEY}/modcloth/modcloth_final_data.json.gz"),),
+    #     files=(
+    #         File(
+    #             "https://mcauleylab.ucsd.edu/public_datasets/data/modcloth/modcloth_final_data.json.gz"
+    #         ),
+    #     ),
     #     citation="Misra, Wan & McAuley (2018). Decomposing fit semantics for product size "
     #     "recommendation in metric spaces. RecSys.",
     #     check=check_jsonl_gz,
-    # ),
-    # "renttherunway": Dataset(
-    #     note="RentTheRunway clothing fit feedback (~193K transactions)",
-    #     files=(File(f"{MCAULEY}/renttherunway/renttherunway_final_data.json.gz"),),
-    #     citation="Misra, Wan & McAuley (2018). Decomposing fit semantics for product size "
-    #     "recommendation in metric spaces. RecSys.",
-    #     check=check_jsonl_gz,
-    # ),
-    # "steam": Dataset(
-    #     note="Steam v1: Australian user reviews, user-item play data, bundles",
-    #     files=(
-    #         File(f"{MCAULEY}/steam/australian_user_reviews.json.gz"),
-    #         File(f"{MCAULEY}/steam/australian_users_items.json.gz"),
-    #         File(f"{MCAULEY}/steam/bundle_data.json.gz"),
-    #     ),
-    #     citation="Kang & McAuley (2018). Self-attentive sequential recommendation. ICDM; "
-    #     "Pathak, Gupta & McAuley (2017). Generating and personalizing bundle recommendations on "
-    #     "Steam. SIGIR.",
-    #     check=check_jsonl_gz,
-    # ),
-    # "steam_v2": Dataset(
-    #     note="Steam v2: ~7.8M reviews + game metadata (LARGE)",
-    #     files=(
-    #         File("https://cseweb.ucsd.edu/~wckang/steam_reviews.json.gz"),
-    #         File("https://cseweb.ucsd.edu/~wckang/steam_games.json.gz"),
-    #     ),
-    #     citation="Kang & McAuley (2018). Self-attentive sequential recommendation. ICDM.",
-    #     check=check_jsonl_gz,
-    # ),
-    # "beeradvocate": Dataset(
-    #     note="BeerAdvocate multi-aspect reviews (~1.6M reviews)",
-    #     files=(File(f"{MCAULEY}/beer/beeradvocate.json.gz"),),
-    #     citation="McAuley, Leskovec & Jurafsky (2012). Learning attitudes and attributes from "
-    #     "multi-aspect reviews. ICDM.",
-    #     check=check_jsonl_gz,
-    # ),
-    # "ratebeer": Dataset(
-    #     note="RateBeer multi-aspect reviews (~2.9M reviews)",
-    #     files=(File(f"{MCAULEY}/beer/ratebeer.json.gz"),),
-    #     citation="McAuley, Leskovec & Jurafsky (2012). Learning attitudes and attributes from "
-    #     "multi-aspect reviews. ICDM.",
-    #     check=check_jsonl_gz,
-    # ),
-    # "google_local_2018": Dataset(
-    #     note="Google Local 2018: ~11.5M reviews, places, users (LARGE)",
-    #     files=(
-    #         File(f"{MCAULEY}/googlelocal/places.clean.json.gz"),
-    #         File(f"{MCAULEY}/googlelocal/users.clean.json.gz"),
-    #         File(f"{MCAULEY}/googlelocal/reviews.clean.json.gz"),
-    #     ),
-    #     citation="He, Kang & McAuley (2017). Translation-based recommendation. RecSys; "
-    #     "Pasricha & McAuley (2018). Translation-based factorization machines for sequential "
-    #     "recommendation. RecSys.",
-    #     check=check_jsonl_gz,
-    # ),
-    # "tradesy": Dataset(
-    #     note="Tradesy peer-to-peer trades (~68K transactions)",
-    #     files=(File(f"{MCAULEY}/tradesy/tradesy.json.gz"),),
-    #     citation="Rappaz, Vladarean, McAuley & Catasta (2017). Bartering books to beers: "
-    #     "a recommender system for exchange platforms. WSDM.",
-    #     check=check_jsonl_gz,
-    # ),
-    # "librarything": Dataset(
-    #     note="LibraryThing reviews + social links (~979K ratings)",
-    #     files=(File(f"{MCAULEY}/librarything/lthing_data.tar.gz"),),
-    #     citation="Zhao, McAuley & King (2014). Leveraging social connections to improve "
-    #     "personalized ranking for collaborative filtering. CIKM.",
-    # ),
-    # "epinions": Dataset(
-    #     note="Epinions reviews + trust network (~181K ratings)",
-    #     files=(File(f"{MCAULEY}/epinions/epinions_data.tar.gz"),),
-    #     citation="Zhao, McAuley & King (2014). Leveraging social connections to improve "
-    #     "personalized ranking for collaborative filtering. CIKM.",
-    # ),
-    # "goodreads": Dataset(
-    #     note="Goodreads: pick specific genre files from "
-    #     "https://cseweb.ucsd.edu/~jmcauley/datasets/goodreads.html and add their URLs here",
     # ),
 }
-
-# What `make data` / postCreateCommand fetches. Set this once the group picks a dataset.
-ACTIVE: list[str] = []
-
-
-# ---------------------------------------------------------------------------
 
 
 def present(name: str) -> bool:
@@ -235,9 +135,10 @@ def fetch(name: str, force: bool = False) -> None:
                 download(file, dest)
             print(f"[done]   {name}")
         except (OSError, zipfile.BadZipFile, tarfile.TarError) as e:
-            # one flaky download shouldn't stop the others; clear partial state
+            # clear partial state, so a failed download never looks "present"
             shutil.rmtree(dest, ignore_errors=True)
-            print(f"[warn]   {name}: download failed ({e}); re-run this script later")
+            print(
+                f"[warn]   {name}: download failed ({e}); re-run this script later")
             return
 
     if ds.check is not None:
@@ -250,30 +151,29 @@ def fetch(name: str, force: bool = False) -> None:
 def main(argv: list[str]) -> None:
     flags = {a for a in argv if a.startswith("--")}
     names = [a for a in argv if not a.startswith("--")]
-    if not names:
-        names = list(DATASETS) if flags & {"--all", "--list"} else ACTIVE
-
-    unknown = [n for n in names if n not in DATASETS]
-    if unknown:
-        sys.exit(f"Unknown dataset(s): {', '.join(unknown)}. Options: {', '.join(DATASETS)}")
 
     if "--list" in flags:
         print(f"DATA_DIR = {DATA_DIR}")
-        print(f"ACTIVE   = {ACTIVE or '(none yet)'}")
-        for name in names:
+        print(f"config   = {CONFIG.dataset or '(none yet)'}")
+        for name in names or DATASETS:
             ds = DATASETS[name]
-            status = "present" if present(name) else ("missing" if ds.files else "manual")
+            status = "present" if present(name) else (
+                "missing" if ds.files else "manual")
             print(f"  {name:18s} {status:8s} {ds.note}")
             if ds.citation:
                 print(f"  {'':18s} {'':8s} cite: {ds.citation}")
         return
 
     if not names:
-        print(
-            "No ACTIVE datasets yet: set ACTIVE in scripts/get_data.py, "
-            "or name candidates explicitly (see --list)"
-        )
-        return
+        if CONFIG.dataset not in DATASETS:
+            print(f"Nothing to download for dataset {CONFIG.dataset!r}")
+            return
+        names = [CONFIG.dataset]
+
+    unknown = [n for n in names if n not in DATASETS]
+    if unknown:
+        sys.exit(
+            f"Unknown dataset(s): {', '.join(unknown)}. Options: {', '.join(DATASETS)}")
 
     for name in names:
         fetch(name, force="--force" in flags)

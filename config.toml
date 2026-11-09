@@ -1,0 +1,20 @@
+# The group's agreed settings. Personal overrides belong in .env or --config.
+# Swap dataset and task once the group picks them; `synthetic` needs no download.
+dataset = "synthetic"   # a key in LOADERS (modules/core/datasets.py)
+task = "rating"         # rating | binary | ranking
+seed = 258
+
+[split]
+valid_frac = 0.1
+test_frac = 0.1
+by_time = true          # falls back to a random split if the dataset has no timestamps
+drop_cold = true        # remove held-out rows whose user or item never appears in train
+
+[evaluation]
+k = 10                  # cutoff for ranking metrics
+n_negatives = 99        # sampled negatives per user for ranking
+n_bootstrap = 500       # 0 turns off confidence intervals
+
+[models.bias]
+lam = 1.0
+iters = 20

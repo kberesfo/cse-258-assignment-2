@@ -43,25 +43,27 @@ Select the `.venv` interpreter as the notebook kernel.
 
 ## Common commands
 
-Everything goes through `make`. Each pipeline stage reruns only when code in `src/` changes.
+Everything goes through `make`. Each pipeline stage reruns only when code in `src/` or
+`config.toml` changes.
 
 | Command          | What it does                                                   |
 | ---------------- | -------------------------------------------------------------- |
-| `make data`      | Download the active dataset(s) into `data/`                    |
+| `make data`      | Download the dataset named in `config.toml` into `data/`       |
 | `make prep`      | Load, clean, and split the data → `artifacts/`                 |
 | `make train`     | Fit all registered models → `artifacts/`                       |
-| `make eval`      | Score every model on the fixed split → `results/metrics.json`  |
+| `make eval`      | Score every model on validation → `results/metrics.json`       |
 | `make figures`   | Plots for the notebook and slides → `results/figures/`         |
 | `make results`   | All of the above                                               |
+| `make final`     | Also score the test split; run once models are frozen          |
 | `make diff`      | Compare metrics with the previous run                          |
 | `make workbook`  | Execute the notebook → `submit/workbook.html`                  |
-| `make check`     | Validate submission files the way the autograder does          |
-| `make submit`    | `results` + `workbook` + `check`                               |
+| `make check`     | Run the autograder's checks, including the video download      |
+| `make submit`    | `final` + `workbook` + `check`                                 |
 | `make lint`      | Ruff lint and format check                                     |
 | `make fmt`       | Auto-fix lint and formatting                                   |
-| `make test`      | Run tests                                                      |
+| `make test`      | Run tests, including a full pipeline run on synthetic data     |
 
-Force a stage to rerun: `make -B train`.
+Force a rerun with `make -B train`, which also reruns the stages before it.
 
 The CLI can also be called directly:
 
@@ -85,46 +87,59 @@ uv run assignment-2 eval --split valid
 ├── docs/                     # assignment spec
 ├── notebooks/
 │   ├── workbook.ipynb        # the submission: one section per rubric item
+│   ├── workbook.py           # jupytext pair of the notebook; review this in PRs
 │   └── scratch/<name>/       # personal exploration; never imported from
-├── presentation/             # slide source and outline
 ├── scripts/
-│   └── get_data/             # dataset registry + downloader
+│   ├── get_data/             # dataset downloads
+│   └── check_submission.py   # the spec's autograder checks
 ├── src/assignment_2/
 │   ├── cli.py                # subcommands: prep, train, eval, figures, models
-│   ├── config.py             # paths, seed, dataset choice
 │   └── modules/
+│       ├── config/           # settings, loaded from config.toml
 │       ├── core/             # the pipeline every model shares
-│       │   ├── data.py       # loading, cleaning, train/valid/test split
-│       │   ├── features.py   # feature construction shared across models
-│       │   ├── evaluate.py   # evaluation protocol (which split, which models, output)
+│       │   ├── datasets.py   # one loader per dataset → the standard table
+│       │   ├── data.py       # cleaning, train/valid/test split, load_split
+│       │   ├── features.py   # ID maps, sparse matrices, library adapters, negatives
+│       │   ├── evaluate.py   # evaluation protocol: scores saved predictions
 │       │   ├── metrics.py    # pure metric functions
-│       │   └── plots.py      # shared figure style
-│       └── models/           # one file per model family; registered in __init__.py
-│           ├── __init__.py   # MODELS registry + train()
-│           └── baselines.py  # trivial and course baselines
+│       │   ├── plots.py      # EDA and model comparison figures
+│       │   └── notebook.py   # display helpers, including show(fn)
+│       └── models/           # one file per model family
+│           ├── base.py       # save_predictions: the contract with evaluation
+│           ├── registry.py   # MODELS and train()
+│           └── baselines.py  # trivial, popularity, bias
 ├── submit/                   # workbook.html (gitignored), video_url.txt
 ├── tests/
+├── config.toml               # the group's dataset, task, split, and hyperparameters
 ├── Makefile
 └── pyproject.toml
 ```
 
 **Rule of thumb:** logic lives in `src/`, and notebooks only call it and display results.
-That keeps the notebook short and readable, and keeps changes reviewable in PRs.
+Graders only see the exported HTML, so use `show(fn)` in the notebook to print the code you
+walk through.
 
 ---
 
 ## Data
 
-Datasets are **not committed**. `scripts/get_data` holds a registry of candidates from
-[McAuley's dataset page](https://cseweb.ucsd.edu/~jmcauley/datasets.html). `ACTIVE` lists
-the ones `make data` downloads.
+Datasets are **not committed**. Until the group picks one, `config.toml` uses `synthetic`, a
+small fake dataset that needs no download. ModCloth is included as a worked example.
 
-```bash
-uv run python scripts/get_data --list       # status of every candidate
-uv run python scripts/get_data modcloth     # fetch one without changing ACTIVE
-```
+### Plugging in a dataset
 
-Set the `DATA_DIR` environment variable to keep data somewhere other than `data/`.
+1. Add a download entry to `DATASETS` in `scripts/get_data/__main__.py`
+   ([dataset links](https://cseweb.ucsd.edu/~jmcauley/datasets.html)).
+2. Write a loader in `modules/core/datasets.py`, using the same key, that returns the standard
+   table, and add it to `LOADERS`. `load_modcloth` is the template.
+3. Set `dataset` and `task` (`rating`, `binary`, or `ranking`) in `config.toml`.
+4. Run `make data results`.
+
+The standard table has one row per interaction, with `user` and `item`, plus `rating` or
+`label` as the task requires, and an optional `timestamp` in Unix seconds. Extra columns are
+kept for feature-based models. Without timestamps, the split falls back to random.
+
+Set `A2_PATHS__DATA_DIR` to keep data somewhere other than `data/`.
 
 ---
 
@@ -138,14 +153,22 @@ Set the `DATA_DIR` environment variable to keep data somewhere other than `data/
 
 ### Adding a model
 
-1. Write a function `fit_<name>(cfg)` in a file under `modules/models/`. It should save its
-   output under `cfg.paths.art_dir`. The first line of its docstring is shown by
-   `assignment-2 models`.
-2. Register it in `MODELS` in `modules/models/__init__.py`.
-3. Run `uv run assignment-2 train --model <name>`, then `make eval`.
+1. Write a function `fit_<name>(cfg)` in a file under `modules/models/`. Train on
+   `load_split(cfg, "train")`, then call `save_predictions(cfg, "<name>", predict)`, where
+   `predict` takes a table and returns one score per row. The first line of its docstring is
+   shown by `assignment-2 models`.
+2. Register it in `MODELS` in `modules/models/registry.py`.
+3. Run `uv run assignment-2 train --model <name>`, then `uv run assignment-2 eval`.
 
-Every model is scored by `util/evaluate.py` on the same split, so results are comparable.
-Don't write separate evaluation code inside a model file.
+`modules/models/base.py` defines what a score means for each task. Every model is scored by
+`modules/core/evaluate.py` on the same rows, so results are comparable. Don't write separate
+evaluation code inside a model file.
+
+Hyperparameters go in `config.toml` under `[models.<name>]`, and `cfg.params("<name>")` reads
+them. `features.py` has adapters for `implicit` and `surprise`.
+
+`make eval` only scores validation, so tune against that. Run `make final` once models are
+frozen.
 
 ### Notebooks
 
@@ -154,7 +177,7 @@ Don't write separate evaluation code inside a model file.
 - `notebooks/scratch/<name>/` is yours. Experiment freely; move anything worth keeping
   into `src/`.
 - Notebooks are paired with `.py` files via jupytext (`make sync`). Review the `.py` diff
-  in PRs. Outputs are stripped from scratch notebooks before commit.
+  in PRs. Clear outputs from scratch notebooks before committing.
 
 ### Reproducibility
 

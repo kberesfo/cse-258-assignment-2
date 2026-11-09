@@ -1,0 +1,2 @@
+# Pair every notebook with a .py file, so PRs can review the .py diff.
+formats = "ipynb,py:percent"
