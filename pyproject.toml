@@ -20,6 +20,8 @@ dependencies = [
     "ipykernel",
     "demjson3>=3.0.6",
     "tqdm>=4.70.1",
+    "pydantic>=2.14.3",
+    "pydantic-settings>=2.16.2",
 ]
 
 [dependency-groups]

@@ -15,32 +15,26 @@ import argparse
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import replace
 
-from assignment_2.config import Config, config
-# cmd_prep
-from assignment_2.modules.core import data
-# cmd_train / cmd_models
-# unchanged: now resolves to models/__init__.py
-from assignment_2.modules import models
-# cmd_eval
-from assignment_2.modules.core import evaluate
-# cmd_figures
-from assignment_2.modules.core import plots
+from pydantic import ValidationError
+
+from assignment_2.modules.config import Config, load
 
 
 def _common() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=False)
+    p.add_argument(
+        "--config", help="extra TOML overrides (default: $A2_CONFIG); config.toml always applies"
+    )
     g = p.add_argument_group(
-        "paths (default: repo dirs, or DATA_DIR/ART_DIR/RESULTS_DIR)")
+        "paths (default: from config; env A2_PATHS__DATA_DIR etc.)")
     g.add_argument("--data-dir", help="raw datasets (from scripts/get_data)")
     g.add_argument(
         "--art-dir", help="regenerable outputs: splits, trained models")
     g.add_argument("--results-dir",
                    help="committed outputs: metrics.json, figures/")
-    p.add_argument(
-        "--seed", type=int, default=config.seed, help="random seed (default: %(default)s)"
-    )
+    p.add_argument("--seed", type=int,
+                   help="random seed (default: from config)")
     return p
 
 
@@ -50,7 +44,7 @@ def _common() -> argparse.ArgumentParser:
 
 
 def cmd_prep(cfg: Config, args: argparse.Namespace) -> None:
-    from assignment_2.modules import data
+    from assignment_2.modules.core import data
 
     data.prep(cfg)
 
@@ -69,13 +63,13 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
 
 
 def cmd_eval(cfg: Config, args: argparse.Namespace) -> None:
-    from assignment_2.modules import evaluate
+    from assignment_2.modules.core import evaluate
 
     evaluate.evaluate(cfg, split=args.split)
 
 
 def cmd_figures(cfg: Config, args: argparse.Namespace) -> None:
-    from assignment_2.modules import plots
+    from assignment_2.modules.core import plots
 
     plots.figures(cfg)
 
@@ -119,10 +113,21 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    cfg = config.with_paths(
-        data_dir=args.data_dir, art_dir=args.art_dir, results_dir=args.results_dir
-    )
-    cfg = replace(cfg, paths=cfg.paths.ensure(), seed=args.seed)
+    try:
+        cfg = load(
+            args.config,
+            seed=args.seed,
+            paths={
+                "data_dir": args.data_dir,
+                "art_dir": args.art_dir,
+                "results_dir": args.results_dir,
+            },
+        )
+    except (ValidationError, FileNotFoundError) as e:
+        sys.exit(f"config error: {e}")
+    cfg.paths.ensure()
+    if cfg.sources:
+        print(f"[config] {', '.join(str(p) for p in cfg.sources)}")
 
     start = time.perf_counter()
     try:
