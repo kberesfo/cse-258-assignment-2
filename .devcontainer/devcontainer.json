@@ -1,0 +1,44 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/python
+{
+    "name": "CSE 258 Assignment 2",
+    // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+    "image": "mcr.microsoft.com/devcontainers/python:3-3.12-trixie",
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {},
+        "ghcr.io/devcontainers/features/github-cli:1.1.3": {},
+        "ghcr.io/va-h/devcontainers-features/uv:1": {},
+        "ghcr.io/devcontainers/features/node:2.1.1": {},
+        "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {}
+    },
+    // "mounts": [
+    //     // "source=/mnt/e/cse-258,target=/data,type=bind",
+    //     // "source=${localEnv:HOME}/.cache/uv,target=/uv-cache,type=bind"
+    // ],
+    "containerEnv": {
+        // "UV_PYTHON_DOWNLOADS": "never",
+        // "UV_CACHE_DIR": "/uv-cache",
+        // "UV_LINK_MODE": "copy"
+        "DATA_DIR": "${workspaceFolder}/data"
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-toolsai.jupyter",
+                "ms-toolsai.vscode-jupyter-cell-tags",
+                "tamasfe.even-better-toml",
+                "ms-toolsai.datawrangler",
+                "njpwerner.autodocstring",
+                "tomoki1207.pdf",
+                "charliermarsh.ruff",
+                "redhat.vscode-yaml"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+                "jupyter.notebookFileRoot": "${fileDirname}"
+            }
+        }
+    },
+    "postCreateCommand": "uv sync --locked",
+    "remoteUser": "vscode"
+}
