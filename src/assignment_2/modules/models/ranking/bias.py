@@ -1,59 +1,31 @@
-# bias.py (the class part)
-from typing import Self
+from surprise import BaselineOnly
 
-import numpy as np
-import pandas as pd
-from numpy.typing import NDArray
-from surprise import AlgoBase, BaselineOnly, Dataset, Reader, Trainset
-
-from .base import RatingModel
+from .base import SurpriseModel
 
 
-class BiasModel(RatingModel):
-    """f(u,i) = alpha + beta_u + beta_i, fit by ALS (Surprise BaselineOnly)."""
+class BiasModel(SurpriseModel):
+    """f(u,i) = alpha + beta_u + beta_i, fit by ALS (Surprise BaselineOnly).
+
+    Within one user only beta_i varies, so it ranks every user the same way:
+    regularized popularity. A baseline, not a personalized model.
+    """
 
     def __init__(
         self,
-        reg_u: float,
-        reg_i: float,
-        n_epochs: int = 25,
-        scale: tuple[float, float] = (1, 5)
+        reg_u: float = 15,
+        reg_i: float = 10,
+        n_epochs: int = 10,
+        target: str = "playtime",
+        neg_ratio: int = 4,
+        seed: int = 0,
     ) -> None:
-        super().__init__(scale)
-        self.reg_u = reg_u
-        self.reg_i = reg_i
-        self.n_epochs = n_epochs
-        self.model: AlgoBase | None = None
-
-    def fit(self, train: pd.DataFrame) -> Self:
-        self.model = BaselineOnly(
-            bsl_options={
-                "method": "als",
-                "reg_u": self.reg_u,
-                "reg_i": self.reg_i,
-                "n_epochs": self.n_epochs
-            },
-            verbose=False
-        )
-
-        self.model.fit(self._trainset(train))
-
-        return self
-
-    def predict(self, rows: pd.DataFrame) -> NDArray:
-        if self.model is None:
-            raise RuntimeError(
-                f"{type(self).__name__}.predict called before fit"
-            )
-
-        return
-
-    def _trainset(self, df: pd.DataFrame) -> Trainset:
-        reader = Reader(rating_scale=self.scale)
-
-        return Dataset.load_from_df(
-            df[["user", "item", "rating"]], reader
-        ).build_full_trainset()
+        super().__init__(target=target, neg_ratio=neg_ratio, seed=seed)
+        self.reg_u, self.reg_i, self.n_epochs = reg_u, reg_i, n_epochs
 
     def _make_algo(self) -> BaselineOnly:
-        return
+        options = {"method": "als", "reg_u": self.reg_u, "reg_i": self.reg_i,
+                   "n_epochs": self.n_epochs}  # fmt: skip
+        return BaselineOnly(bsl_options=options, verbose=False)
+
+    def _score(self, u, i):
+        return self.trainset.global_mean + self.algo.bu[u] + self.algo.bi[i]

@@ -1,42 +1,28 @@
-# lfm.py (the class part)
-from typing import Any, Self
+from typing import Any
 
-import pandas as pd
-from surprise import SVD, AlgoBase, Dataset, Reader, Trainset
+import numpy as np
+from surprise import SVD
 
-from .base import RatingModel
+from .base import SurpriseModel
 
 
-class SVDModel(RatingModel):
+class SVDModel(SurpriseModel):
     """Funk-style LFM: f(u,i) = alpha + beta_u + beta_i + gamma_u . gamma_i, fit by SGD."""
 
     def __init__(
-            self,
-            scale: tuple[float, float] = (1, 5),
-            seed: int = 0,
-            **svd_params: Any
+        self,
+        target: str = "playtime",
+        neg_ratio: int = 4,
+        seed: int = 0,
+        **svd_params: Any,  # n_factors, n_epochs, lr_all, reg_all, biased, ...
     ) -> None:
-        super().__init__(scale)
-        self.seed = seed
+        super().__init__(target=target, neg_ratio=neg_ratio, seed=seed)
         self.svd_params = svd_params
-        self.model: AlgoBase | None = None
 
-    def fit(self, train: pd.DataFrame) -> Self:
-        self.model = SVD(random_state=self.seed, **self.svd_params)
-        self.model.fit(self._trainset(train))
-        return self
+    def _make_algo(self) -> SVD:
+        return SVD(random_state=self.seed, **self.svd_params)
 
-    def predict(self, rows):
-        if self.model is None:
-            raise RuntimeError(
-                f"{type(self).__name__}.predict called before fit"
-            )
-
-        return
-
-    def _trainset(self, df: pd.DataFrame) -> Trainset:
-        reader = Reader(rating_scale=self.scale)
-
-        return Dataset.load_from_df(
-            df[["user", "item", "rating"]], reader
-        ).build_full_trainset()
+    def _score(self, u, i):
+        a = self.algo
+        dot = np.einsum("nk,nk->n", a.pu[u], a.qi[i])
+        return self.trainset.global_mean + a.bu[u] + a.bi[i] + dot if a.biased else dot
