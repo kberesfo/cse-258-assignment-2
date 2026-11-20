@@ -1,21 +1,20 @@
 # CSE 258 Assignment 2
+#   make data       download the dataset named in config.toml -> data/
 #   make prep       load + clean + split data          -> artifacts/
 #   make train      fit baselines and models           -> artifacts/
-#   make eval       score everything on the fixed split -> results/metrics.json
+#   make eval       score models on the validation split -> results/metrics.json
 #   make figures    plots for the notebook and slides  -> results/figures/
-#   make results    prep + train + eval + figures (each step reruns only if src/ changed)
+#   make results    prep + train + eval + figures (each step reruns only if inputs changed)
+#   make final      also score the test split; run this once models are frozen
 #   make diff       metrics now vs the latest snapshot in results_history/
 #   make sync       pair/sync notebooks with jupytext
 #   make workbook   execute notebooks/workbook.ipynb   -> submit/workbook.html
 #   make check      verify the submission files the way the autograder does
-#   make submit     results + workbook + check
+#   make submit     final + workbook + check
 #   make lint / fmt / test
 
 RUN      ?= uv run
-# The CLI isn't settled yet, so everything goes through this one variable.
-# Swap it for a console script later, e.g.  CLI ?= $(RUN) a2
-CLI      ?= $(RUN) python -m a2
-DATA_DIR ?= data   # set DATA_DIR in devcontainer.json to point at the mounted dataset
+CLI      ?= $(RUN) assignment-2
 
 NB       := notebooks/workbook.ipynb
 ART      := artifacts
@@ -23,14 +22,17 @@ RES      := results
 HIST     := $(RES)_history
 SUB      := submit
 STAMP    := $(ART)/.stamps
-SRC      := $(shell find src -name '*.py' 2>/dev/null) pyproject.toml uv.lock
+SRC      := $(shell find src -name '*.py' 2>/dev/null) pyproject.toml uv.lock $(wildcard config.toml)
 
-.PHONY: prep train eval figures results snapshot diff sync workbook check submit \
+.PHONY: data prep train eval figures results final snapshot diff sync workbook check submit \
         lint fmt test clean clean-all
 
+data:
+	$(RUN) python scripts/get_data
+
 # ── pipeline ────────────────────────────────────────────────────────────────
-# Stamp files make each stage rerun only when code changes, so `make workbook`
-# doesn't retrain from scratch every time. Force a stage with: make -B train
+# Stamp files make each stage rerun only when its inputs change, so `make workbook`
+# doesn't retrain from scratch every time. Force a rerun with: make -B train
 prep:    $(STAMP)/prep
 train:   $(STAMP)/train
 eval:    $(STAMP)/eval
@@ -38,21 +40,26 @@ figures: $(STAMP)/figures
 results: figures
 
 $(STAMP)/prep: $(SRC)
-	$(CLI) prep --data-dir $(DATA_DIR) --out-dir $(ART)
+	$(CLI) prep
 	@mkdir -p $(@D) && touch $@
 
 $(STAMP)/train: $(STAMP)/prep
-	$(CLI) train --art-dir $(ART)
+	$(CLI) train
 	@touch $@
 
 $(STAMP)/eval: $(STAMP)/train
 	@$(MAKE) --no-print-directory snapshot
-	$(CLI) eval --art-dir $(ART) --out $(RES)/metrics.json
+	$(CLI) eval
 	@touch $@
 
 $(STAMP)/figures: $(STAMP)/eval
-	$(CLI) figures --art-dir $(ART) --out-dir $(RES)/figures
+	$(CLI) figures
 	@touch $@
+
+# Test metrics are deliberately not part of `results`, so nobody tunes against them.
+final: results
+	$(CLI) eval --split test
+	$(CLI) figures
 
 # Copy current metrics to results_history/<timestamp>/ before eval overwrites them.
 snapshot:
@@ -82,30 +89,21 @@ workbook: results
 		--output-dir $(SUB) --output workbook
 
 # ── submission ──────────────────────────────────────────────────────────────
-# Mirrors the autograder's checks from the spec (html header, video link format).
+# Runs the spec's autograder checks, including downloading the start of the video.
 check:
-	@test -f $(SUB)/workbook.html || { echo "check: missing $(SUB)/workbook.html"; exit 1; }
-	@head -c 15 $(SUB)/workbook.html | grep -q '^<!DOCTYPE html>' \
-		&& echo "check: workbook.html is html" \
-		|| { echo "check: workbook.html does not start with <!DOCTYPE html>"; exit 1; }
-	@test -f $(SUB)/video_url.txt || { echo "check: missing $(SUB)/video_url.txt"; exit 1; }
-	@[ $$(grep -c . $(SUB)/video_url.txt) -eq 1 ] || { echo "check: video_url.txt must be one line"; exit 1; }
-	@grep -Eq '^https://(drive\.google\.com/(file/d/|uc\?)|(www\.)?youtube\.com/watch|youtu\.be/)' $(SUB)/video_url.txt \
-		&& echo "check: video_url.txt looks like a drive/youtube link" \
-		|| { echo "check: video_url.txt is not a drive/youtube link"; exit 1; }
-	@if [ -f $(SUB)/check_submission.py ]; then $(RUN) python $(SUB)/check_submission.py; fi
+	$(RUN) python scripts/check_submission $(SUB)
 
-submit: workbook check
+submit: final workbook check
 	@echo "Upload from $(SUB)/:" && ls -1 $(SUB)/workbook.html $(SUB)/video_url.txt
 
 # ── quality ─────────────────────────────────────────────────────────────────
 lint:
-	$(RUN) ruff check src tests
-	$(RUN) ruff format --check src tests
+	$(RUN) ruff check src tests scripts
+	$(RUN) ruff format --check src tests scripts
 
 fmt:
-	$(RUN) ruff check --fix src tests
-	$(RUN) ruff format src tests
+	$(RUN) ruff check --fix src tests scripts
+	$(RUN) ruff format src tests scripts
 
 test:
 	$(RUN) pytest -q
@@ -116,4 +114,4 @@ clean:
 	rm -rf $(ART) $(SUB)/workbook.html
 
 clean-all: clean
-	rm -rf $(RES)/metrics.json $(RES)/figures
+	rm -rf $(RES)/metrics.json $(RES)/figures $(HIST)

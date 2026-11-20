@@ -16,10 +16,10 @@
     //     // "source=${localEnv:HOME}/.cache/uv,target=/uv-cache,type=bind"
     // ],
     "containerEnv": {
+        "DATA_DIR": "${containerWorkspaceFolder}/data"
         // "UV_PYTHON_DOWNLOADS": "never",
         // "UV_CACHE_DIR": "/uv-cache",
         // "UV_LINK_MODE": "copy"
-        "DATA_DIR": "${workspaceFolder}/data"
     },
     "customizations": {
         "vscode": {
@@ -31,7 +31,8 @@
                 "njpwerner.autodocstring",
                 "tomoki1207.pdf",
                 "charliermarsh.ruff",
-                "redhat.vscode-yaml"
+                "redhat.vscode-yaml",
+                "GitHub.vscode-pull-request-github"
             ],
             "settings": {
                 "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
@@ -39,6 +40,6 @@
             }
         }
     },
-    "postCreateCommand": "uv sync --locked",
+    "postCreateCommand": "uv sync --locked && make data",
     "remoteUser": "vscode"
 }

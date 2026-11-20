@@ -1,4 +1,5 @@
-# models/__init__.py
-from assignment_2.modules.models.registry import MODELS, train
+# models/ranking/__init__.py
+from .base import ScoringModel
+from .registry import MODELS, build
 
-__all__ = ["MODELS", "train"]
+__all__ = ["MODELS", "ScoringModel", "build"]
