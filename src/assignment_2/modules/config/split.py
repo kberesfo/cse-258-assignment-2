@@ -6,8 +6,12 @@ from .section import _Section
 class Split(_Section):
     valid_frac: float = Field(0.1, ge=0, lt=1)
     test_frac: float = Field(0.1, ge=0, lt=1)
-    by_time: bool = True  # hold out each user's latest interactions instead of random rows
-    drop_cold: bool = True  # remove held-out rows whose user or item never appears in train
+    # Where a time column exists (reviews), hold out each user's latest rows; else random.
+    by_time: bool = True
+    # Remove held-out rows whose item never appears in train (a model can't score them).
+    drop_cold: bool = True
+    # Users with fewer rows stay entirely in train. >= 3 so held-out users keep a train row.
+    min_per_user: int = Field(3, ge=3)
 
     @model_validator(mode="after")
     def _leaves_training_data(self) -> "Split":

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from assignment_2.modules.config.paths import Split
+from assignment_2.modules.config.split import Split
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ class Splits:
     train: pd.DataFrame
     valid: pd.DataFrame
     test: pd.DataFrame
+    n_cold_dropped: int = 0  # held-out rows removed because their item is never in train
 
     def summary(self) -> str:
         n = len(self.train) + len(self.valid) + len(self.test)
@@ -30,6 +31,8 @@ class Splits:
             f"{name}: {len(df):,} ({len(df) / n:.1%}), {df.user_id.nunique():,} users"
             for name, df in (("train", self.train), ("valid", self.valid), ("test", self.test))
         ]
+        if self.n_cold_dropped:
+            parts.append(f"cold items dropped: {self.n_cold_dropped:,}")
         return " | ".join(parts)
 
 
@@ -38,7 +41,6 @@ def split_by_user(
     split: Split,
     seed: int,
     time_col: str | None = None,
-    min_per_user: int = 3,
 ) -> Splits:
     rng = np.random.default_rng(seed)
     use_time = split.by_time and time_col is not None and time_col in df.columns
@@ -55,26 +57,40 @@ def split_by_user(
         dated = np.ones(len(df), dtype=bool)
 
     user = df["user_id"].to_numpy()
-    n_user = df.groupby("user_id", sort=False)["user_id"].transform("size").to_numpy()
+    by_user = df.groupby("user_id", sort=False)
+    n_user = by_user["user_id"].transform("size").to_numpy()
     # Position from the end of each user's block: 0 = last (latest / random pick).
-    from_end = df.groupby("user_id", sort=False).cumcount(ascending=False).to_numpy()
+    from_end = by_user.cumcount(ascending=False).to_numpy()
     # Undated rows are never held out, so count holdouts from the dated rows only.
     n_dated = pd.Series(dated).groupby(user).transform("sum").to_numpy()
 
-    n_test = np.where(n_user >= min_per_user, np.floor(n_dated * split.test_frac), 0)
-    n_valid = np.where(n_user >= min_per_user, np.floor(n_dated * split.valid_frac), 0)
-    # Every eligible user gets at least one test and one valid row when fractions > 0.
-    eligible = (n_user >= min_per_user) & (n_dated >= 2)
-    n_test = np.where(eligible & (split.test_frac > 0), np.maximum(n_test, 1), 0)
-    n_valid = np.where(eligible & (split.valid_frac > 0), np.maximum(n_valid, 1), 0)
+    # Eligible users give up >= 1 valid and >= 1 test row and keep >= 1 train row.
+    # min_per_user >= 3 (enforced in config) guarantees the train row.
+    eligible = (n_user >= split.min_per_user) & (n_dated >= 2)
+    n_test = np.where(
+        eligible & (split.test_frac > 0), np.maximum(
+            np.floor(n_dated * split.test_frac), 1), 0
+    )
+    n_valid = np.where(
+        eligible & (split.valid_frac > 0),
+        # fmt: skip
+        np.maximum(np.floor(n_dated * split.valid_frac), 1), 0)
 
     is_test = from_end < n_test
     is_valid = ~is_test & (from_end < n_test + n_valid)
-    is_train = ~(is_test | is_valid)
+    train = df[~(is_test | is_valid)].reset_index(drop=True)
+    valid = df[is_valid].reset_index(drop=True)
+    test = df[is_test].reset_index(drop=True)
 
-    keep = df.columns
-    return Splits(
-        train=df[is_train][keep].reset_index(drop=True),
-        valid=df[is_valid][keep].reset_index(drop=True),
-        test=df[is_test][keep].reset_index(drop=True),
-    )
+    n_cold = 0
+    if split.drop_cold:
+        # A model can't score an item it never saw in training; every held-out user
+        # already has train rows by construction, so only items need checking.
+        seen = train["item_id"].unique()
+        keep_v, keep_t = valid["item_id"].isin(
+            seen), test["item_id"].isin(seen)
+        n_cold = int((~keep_v).sum() + (~keep_t).sum())
+        valid = valid[keep_v].reset_index(drop=True)
+        test = test[keep_t].reset_index(drop=True)
+
+    return Splits(train=train, valid=valid, test=test, n_cold_dropped=n_cold)

@@ -45,7 +45,6 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from .eval import Evaluation
 from .paths import DEFAULT_FILE, REPO_ROOT, Paths
 from .sample import Sample
 from .split import Split
@@ -67,7 +66,6 @@ class Config(BaseSettings):
     paths: Paths = Paths()
     split: Split = Split()
     sample: Sample = Sample()
-    evaluation: Evaluation = Evaluation()
     models: dict[str, dict[str, Any]] = {}  # [models.<name>] hyperparameters
 
     # Set by load(); not a setting.
