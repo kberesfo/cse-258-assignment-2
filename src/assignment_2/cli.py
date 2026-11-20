@@ -26,11 +26,15 @@ def _common() -> argparse.ArgumentParser:
     p.add_argument(
         "--config", help="extra TOML overrides (default: $A2_CONFIG); config.toml always applies"
     )
-    g = p.add_argument_group("paths (default: from config; env A2_PATHS__DATA_DIR etc.)")
+    g = p.add_argument_group(
+        "paths (default: from config; env A2_PATHS__DATA_DIR etc.)")
     g.add_argument("--data-dir", help="raw datasets (from scripts/get_data)")
-    g.add_argument("--art-dir", help="regenerable outputs: splits, trained models")
-    g.add_argument("--results-dir", help="committed outputs: metrics.json, figures/")
-    p.add_argument("--seed", type=int, help="random seed (default: from config)")
+    g.add_argument(
+        "--art-dir", help="regenerable outputs: splits, trained models")
+    g.add_argument("--results-dir",
+                   help="committed outputs: metrics.json, figures/")
+    p.add_argument("--seed", type=int,
+                   help="random seed (default: from config)")
     return p
 
 
@@ -42,7 +46,14 @@ def _common() -> argparse.ArgumentParser:
 def cmd_prep(cfg: Config, args: argparse.Namespace) -> None:
     from assignment_2.modules import data
 
-    data.steam_tables(cfg)
+    out = data.prep(cfg)
+    stats = data.read_meta(cfg)["stats"]
+    inter = stats["interactions"]
+    print(
+        f"[prep] {cfg.sample.tag}: {inter['all']['users']:,} users, "
+        f"{inter['all']['items']:,} games, sparsity {inter['all']['sparsity']:.4f}, "
+        f"{inter['cold_dropped']:,} cold held-out rows dropped -> {out}"
+    )
 
 
 def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
@@ -51,9 +62,11 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
     names = args.model or list(models.MODELS)
     unknown = sorted(set(names) - set(models.MODELS))
     if unknown:
-        sys.exit(f"unknown model(s): {', '.join(unknown)} (see `assignment-2 models`)")
+        sys.exit(
+            f"unknown model(s): {', '.join(unknown)} (see `assignment-2 models`)")
     if not names:
-        sys.exit("no models registered yet: add one to MODELS in modules/models/registry.py")
+        sys.exit(
+            "no models registered yet: add one to MODELS in modules/models/registry.py")
     models.train(cfg, names)
 
 
@@ -84,18 +97,23 @@ def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     common = _common()
-    parser = argparse.ArgumentParser(prog="assignment-2", description=__doc__.split("\n\n")[0])
-    sub = parser.add_subparsers(dest="command", required=True, metavar="command")
+    parser = argparse.ArgumentParser(
+        prog="assignment-2", description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(
+        dest="command", required=True, metavar="command")
 
     def add(name: str, fn: Callable, help: str) -> argparse.ArgumentParser:
         p = sub.add_parser(name, parents=[common], help=help, description=help)
         p.set_defaults(func=fn)
         return p
 
-    add("prep", cmd_prep, "load, clean, and split the dataset -> artifacts/")
+    add("prep", cmd_prep,
+        "sample, split, and build candidate tables -> artifacts/steam/<tag>/")
     p = add("train", cmd_train, "fit baselines and models -> artifacts/")
-    p.add_argument("--model", action="append", help="model to train (repeatable; default: all)")
-    p = add("eval", cmd_eval, "score trained models on the fixed split -> results/metrics.json")
+    p.add_argument("--model", action="append",
+                   help="model to train (repeatable; default: all)")
+    p = add("eval", cmd_eval,
+            "score trained models on the fixed split -> results/metrics.json")
     p.add_argument("--split", default="valid", choices=["valid", "test"])
     add("figures", cmd_figures, "plots for the notebook and slides -> results/figures/")
     add("models", cmd_models, "list registered models")
