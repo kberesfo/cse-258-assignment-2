@@ -16,6 +16,7 @@
     //     // "source=${localEnv:HOME}/.cache/uv,target=/uv-cache,type=bind"
     // ],
     "containerEnv": {
+        "DATA_DIR": "${containerWorkspaceFolder}/data"
         // "UV_PYTHON_DOWNLOADS": "never",
         // "UV_CACHE_DIR": "/uv-cache",
         // "UV_LINK_MODE": "copy"

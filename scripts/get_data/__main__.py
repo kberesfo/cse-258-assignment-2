@@ -67,18 +67,34 @@ def check_jsonl_gz(dest: Path) -> str:
 
 # Add the group's dataset here, using the same key as its loader in LOADERS.
 # Options and links: https://cseweb.ucsd.edu/~jmcauley/datasets.html
+STEAM = "https://mcauleylab.ucsd.edu/public_datasets/data/steam"
+STEAM_V2 = "https://cseweb.ucsd.edu/~wckang"
+STEAM_CITATION = (
+    "Kang & McAuley (2018). Self-attentive sequential recommendation. ICDM; "
+    "Wan & McAuley (2018). Item recommendation on monotonic behavior chains. RecSys; "
+    "Pathak, Gupta & McAuley (2017). Generating and personalizing bundle "
+    "recommendations on Steam. SIGIR."
+)
+
 DATASETS: dict[str, Dataset] = {
-    # "modcloth": Dataset(
-    #     note="ModCloth clothing fit feedback (~83K transactions)",
-    #     files=(
-    #         File(
-    #             "https://mcauleylab.ucsd.edu/public_datasets/data/modcloth/modcloth_final_data.json.gz"
-    #         ),
-    #     ),
-    #     citation="Misra, Wan & McAuley (2018). Decomposing fit semantics for product size "
-    #     "recommendation in metric spaces. RecSys.",
-    #     check=check_jsonl_gz,
-    # ),
+    "steam": Dataset(
+        note="Steam v1: Australian reviews + user-item play data, bundles, item metadata (~80 MB)",
+        files=(
+            File(f"{STEAM}/australian_user_reviews.json.gz"),  # 6.7 MB
+            File(f"{STEAM}/australian_users_items.json.gz"),   # 71 MB
+            File(f"{STEAM}/bundle_data.json.gz"),              # 92 KB
+            # 2.7 MB, names/genres/prices
+            File(f"{STEAM_V2}/steam_games.json.gz"),
+        ),
+        citation=STEAM_CITATION,
+        check=check_jsonl_gz,
+    ),
+    "steam_v2": Dataset(
+        note="Steam v2: full review data (1.3 GB); only fetched when named explicitly",
+        files=(File(f"{STEAM_V2}/steam_reviews.json.gz"),),
+        citation=STEAM_CITATION,
+        check=check_jsonl_gz,
+    ),
 }
 
 
