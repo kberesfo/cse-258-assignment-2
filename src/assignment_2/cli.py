@@ -40,7 +40,7 @@ def _common() -> argparse.ArgumentParser:
 
 
 def cmd_prep(cfg: Config, args: argparse.Namespace) -> None:
-    from assignment_2.modules.core import data
+    from assignment_2.modules import data
 
     data.steam_tables(cfg)
 

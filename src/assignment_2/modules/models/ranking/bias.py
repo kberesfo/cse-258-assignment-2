@@ -1,13 +1,12 @@
 # bias.py (the class part)
-from surprise import BaselineOnly
-
-from .base import RatingModel
+from typing import Self
 
 import numpy as np
 import pandas as pd
 from numpy.typing import NDArray
-from surprise import AlgoBase, Dataset, Reader, Trainset
+from surprise import AlgoBase, BaselineOnly, Dataset, Reader, Trainset
 
+from .base import RatingModel
 
 
 class BiasModel(RatingModel):
@@ -24,7 +23,7 @@ class BiasModel(RatingModel):
         self.reg_u = reg_u
         self.reg_i = reg_i
         self.n_epochs = n_epochs
-        self.model = AlgoBase | None = None
+        self.model: AlgoBase | None = None
 
     def fit(self, train: pd.DataFrame) -> Self:
         self.model = BaselineOnly(
@@ -37,8 +36,8 @@ class BiasModel(RatingModel):
             verbose=False
         )
 
-        self.model.fit()
-        
+        self.model.fit(self._trainset(train))
+
         return self
 
     def predict(self, rows: pd.DataFrame) -> NDArray:
@@ -46,10 +45,8 @@ class BiasModel(RatingModel):
             raise RuntimeError(
                 f"{type(self).__name__}.predict called before fit"
             )
-        
-        return 
 
-
+        return
 
     def _trainset(self, df: pd.DataFrame) -> Trainset:
         reader = Reader(rating_scale=self.scale)
@@ -58,6 +55,5 @@ class BiasModel(RatingModel):
             df[["user", "item", "rating"]], reader
         ).build_full_trainset()
 
-
     def _make_algo(self) -> BaselineOnly:
-        return 
+        return

@@ -10,7 +10,7 @@ import pytest
 
 from assignment_2.cli import main
 from assignment_2.modules.config import load
-from assignment_2.modules.core.data import load_split
+from assignment_2.modules.data import load_split
 from assignment_2.modules.core.features import (
     IdIndex,
     interaction_matrix,

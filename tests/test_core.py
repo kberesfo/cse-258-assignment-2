@@ -4,7 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from assignment_2.modules.core import data, features, metrics
+from assignment_2.modules.core import features, metrics
+from assignment_2.modules import data
 
 
 def test_auc_counts_ties_as_half():
