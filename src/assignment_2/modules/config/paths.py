@@ -55,32 +55,8 @@ class Paths(_Section):
         return self
 
 
-class Split(_Section):
-    valid_frac: float = Field(0.1, ge=0, lt=1)
-    test_frac: float = Field(0.1, ge=0, lt=1)
-    by_time: bool = True  # hold out each user's latest interactions instead of random rows
-    drop_cold: bool = True  # remove held-out rows whose user or item never appears in train
-
-    @model_validator(mode="after")
-    def _leaves_training_data(self) -> "Split":
-        if self.valid_frac + self.test_frac >= 1:
-            raise ValueError("valid_frac + test_frac must be < 1")
-        return self
 
 
-class Sample(_Section):
-    # Fraction of users kept (whole histories). 1.0 = full data; lower it for fast dev runs.
-    user_frac: float = Field(1.0, gt=0, le=1)
-
-    @property
-    def tag(self) -> str:
-        """Folder name for cached outputs, so different fractions never overwrite each other."""
-        return "full" if self.user_frac == 1 else f"users_{self.user_frac:g}"
 
 
-class Evaluation(_Section):
-    k: int = Field(10, ge=1)  # cutoff for ranking metrics
-    # sampled negatives per user for ranking
-    n_negatives: int = Field(99, ge=1)
-    # resamples for confidence intervals; 0 turns them off
-    n_bootstrap: int = Field(500, ge=0)
+

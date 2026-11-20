@@ -45,7 +45,10 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from .paths import DEFAULT_FILE, REPO_ROOT, Evaluation, Paths, Split
+from .eval import Evaluation
+from .paths import DEFAULT_FILE, REPO_ROOT, Paths
+from .sample import Sample
+from .split import Split
 
 
 class Config(BaseSettings):
@@ -58,10 +61,12 @@ class Config(BaseSettings):
     )
 
     dataset: str = ""  # a key in LOADERS (modules/core/datasets.py)
-    task: Literal["rating", "binary", "ranking"] = "rating"  # selects the target and metrics
+    # selects the target and metrics
+    task: Literal["rating", "binary", "ranking"] = "rating"
     seed: int = 258
     paths: Paths = Paths()
     split: Split = Split()
+    sample: Sample = Sample()
     evaluation: Evaluation = Evaluation()
     models: dict[str, dict[str, Any]] = {}  # [models.<name>] hyperparameters
 
@@ -100,7 +105,8 @@ class Config(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        toml = TomlConfigSettingsSource(settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
+        toml = TomlConfigSettingsSource(
+            settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
         return (init_settings, env_settings, dotenv_settings, toml)
 
 
