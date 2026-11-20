@@ -40,6 +40,6 @@
             }
         }
     },
-    "postCreateCommand": "uv sync --locked && make data",
+    "postCreateCommand": "uv sync --locked && make data && make prep",
     "remoteUser": "vscode"
 }
