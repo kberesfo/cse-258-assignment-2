@@ -1,210 +1,56 @@
-import re
-from datetime import datetime
+"""The prep stage: sample users, split, and cache the tables as parquet.
+
+    artifacts/steam/<tag>/              tag = "users_0.1", "full", ...
+        interactions_{train,valid,test}.parquet
+        reviews_{train,valid,test}.parquet
+        items.parquet, bundles.parquet
+
+Later stages and notebooks read these with load_prepped(), which takes seconds instead
+of re-parsing the raw files. Changing [sample] or [split] in config.toml writes a new
+folder (or overwrites the same tag), so runs at different sizes never mix.
+"""
+
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-from .io import _records
-from .steam import SteamData
+from assignment_2.modules.config import Config
 
-REVIEWS = "australian_user_reviews.json.gz"
-USERS_ITEMS = "australian_users_items.json.gz"
-BUNDLES = "bundle_data.json.gz"
-GAMES = "steam_games.json.gz"
+from .split import Splits, split_by_user
+from .steam import load_steam
 
-
-# ── field parsers ───────────────────────────────────────────────────────────
-
-_HELPFUL = re.compile(r"([\d,]+) of ([\d,]+) people")
-_POSTED = re.compile(r"Posted\s+(\w+ \d{1,2})(?:,\s*(\d{4}))?")
-_RELEASE_FORMATS = (
-    "%Y-%m-%d", "%d.%m.%Y", "%b %d, %Y", "%B %d, %Y", "%b %Y", "%B %Y", "%Y"
-)
+SPLITS = ("train", "valid", "test")
 
 
-def parse_release_date(v: object) -> pd.Timestamp:
-    """Steam release dates come in several formats; unknown ones ('Soon..', 'TBA') -> NaT."""
-    if not isinstance(v, str):
-        return pd.NaT
-    s = v.strip()
-    for fmt in _RELEASE_FORMATS:
-        try:
-            return pd.Timestamp(datetime.strptime(s, fmt))
-        except ValueError:
-            continue
-    return pd.NaT
+def prepped_dir(cfg: Config) -> Path:
+    return cfg.paths.art_dir / "steam" / cfg.sample.tag
 
 
-def parse_posted(s: str | None) -> pd.Timestamp:
-    """'Posted November 5, 2011.' -> 2011-11-05. Dates without a year -> NaT.
+def prep(cfg: Config) -> Path:
+    out = prepped_dir(cfg)
+    out.mkdir(parents=True, exist_ok=True)
 
-    Reviews from the year of the crawl show no year on Steam, so the year is unknown.
-    They are kept (NaT), not guessed; decide how to handle them in EDA.
-    """
-    m = _POSTED.search(s or "")
-    if not m or not m.group(2):
-        return pd.NaT
-    try:
-        return pd.Timestamp(datetime.strptime(f"{m.group(1)} {m.group(2)}", "%B %d %Y"))
-    except ValueError:
-        return pd.NaT
+    data = load_steam(cfg.paths.data_dir / "steam", user_frac=cfg.sample.user_frac, seed=cfg.seed)
+    print(f"[prep] {data.summary()}")
 
+    tables: dict[str, Splits] = {
+        "interactions": split_by_user(data.interactions, cfg.split, cfg.seed),
+        "reviews": split_by_user(data.reviews, cfg.split, cfg.seed, time_col="posted"),
+    }
+    for name, s in tables.items():
+        print(f"[prep] {name}: {s.summary()}")
+        for split in SPLITS:
+            getattr(s, split).to_parquet(out / f"{name}_{split}.parquet", index=False)
 
-def parse_helpful(s: str | None) -> tuple[int, int]:
-    """'3 of 4 people (75%) found this review helpful' -> (3, 4); 'No ratings yet' -> (0, 0)."""
-    m = _HELPFUL.search(s or "")
-    if not m:
-        return 0, 0
-    return int(m.group(1).replace(",", "")), int(m.group(2).replace(",", ""))
-
-
-def parse_funny(s: str | None) -> int:
-    """'2 people found this review funny' -> 2; '' -> 0."""
-    m = re.search(r"([\d,]+)", s or "")
-    return int(m.group(1).replace(",", "")) if m else 0
+    data.items.to_parquet(out / "items.parquet", index=False)
+    data.bundles.to_parquet(out / "bundles.parquet", index=False)
+    print(f"[prep] wrote {out}")
+    return out
 
 
-def parse_price(v: object) -> float:
-    """4.99 -> 4.99; 'Free To Play' / 'Free' -> 0.0; other strings or missing -> NaN."""
-    if isinstance(v, int | float):
-        return float(v)
-    if isinstance(v, str) and "free" in v.lower():
-        return 0.0
-    return np.nan
-
-
-# ── tables ──────────────────────────────────────────────────────────────────
-
-
-def load_interactions(path: Path) -> pd.DataFrame:
-    rows = [
-        (u["user_id"], str(it["item_id"]), it.get("playtime_forever", 0),
-         it.get("playtime_2weeks", 0))
-        for u in _records(path)
-        for it in u.get("items", [])
-    ]  # fmt: skip
-    df = pd.DataFrame(
-        rows, columns=["user_id", "item_id", "playtime_forever", "playtime_2weeks"])
-    return df.astype({"playtime_forever": "int32", "playtime_2weeks": "int32"})
-
-
-def load_reviews(path: Path) -> pd.DataFrame:
-    rows = []
-    for u in _records(path):
-        for r in u.get("reviews", []):
-            yes, total = parse_helpful(r.get("helpful"))
-            rows.append(
-                (
-                    u["user_id"],
-                    str(r["item_id"]),
-                    bool(r.get("recommend")),
-                    parse_posted(r.get("posted")),
-                    r.get("review", ""),
-                    parse_funny(r.get("funny")),
-                    yes,
-                    total,
-                )
-            )
-    cols = ["user_id", "item_id", "recommend", "posted", "text", "funny",
-            "helpful_yes", "helpful_total"]  # fmt: skip
-    return pd.DataFrame(rows, columns=cols)
-
-
-def load_items(path: Path) -> pd.DataFrame:
-    rows = [
-        {
-            "item_id": str(g["id"]),
-            "name": g.get("app_name") or g.get("title"),
-            "developer": g.get("developer"),
-            "publisher": g.get("publisher"),
-            "genres": list(g.get("genres") or []),
-            "tags": list(g.get("tags") or []),
-            "specs": list(g.get("specs") or []),
-            "price": parse_price(g.get("price")),
-            "release_date": pd.to_datetime(g.get("release_date"), errors="coerce"),
-            "early_access": bool(g.get("early_access", False)),
-        }
-        for g in _records(path)
-        # a few metadata rows have no id and can't be joined
-        if g.get("id") is not None
-    ]
-    return pd.DataFrame(rows).drop_duplicates("item_id").reset_index(drop=True)
-
-
-def load_bundles(path: Path) -> pd.DataFrame:
-    """One row per (bundle, game). Bundle-level columns repeat on each of its games."""
-    rows = []
-    for b in _records(path):
-        bundle = (
-            str(b["bundle_id"]),
-            b.get("bundle_name"),
-            parse_money(b.get("bundle_price")),
-            parse_money(b.get("bundle_final_price")),
-            parse_percent(b.get("bundle_discount")),
-            len(b.get("items", [])),
-        )
-        for it in b.get("items", []):
-            rows.append(
-                (
-                    *bundle,
-                    str(it["item_id"]),
-                    it.get("item_name"),
-                    split_genres(it.get("genre")),
-                    parse_money(it.get("discounted_price")),
-                )
-            )
-
-    cols = [
-        "bundle_id",
-        "bundle_name",
-        "bundle_price",
-        "bundle_final_price",
-        "bundle_discount",
-        "bundle_size",
-        "item_id",
-        "item_name",
-        "item_genres",
-        "item_price"
-    ]
-
-    return pd.DataFrame(rows, columns=cols)
-
-
-def parse_money(v: object) -> float:
-    """'$29.66' -> 29.66; numbers pass through; 'Free...' -> 0.0; anything else -> NaN."""
-    if isinstance(v, str):
-        try:
-            return float(v.replace("$", "").replace(",", "").strip())
-        except ValueError:
-            pass
-    return parse_price(v)
-
-
-def parse_percent(v: object) -> float:
-    """'10%' -> 0.10; missing or unparsable -> NaN."""
-    m = re.search(r"([\d.]+)\s*%", v) if isinstance(v, str) else None
-    return float(m.group(1)) / 100 if m else np.nan
-
-
-def split_genres(v: object) -> list[str]:
-    """'Casual, Indie' -> ['Casual', 'Indie'] (same list form as items.genres)."""
-    if isinstance(v, list):
-        return [str(g).strip() for g in v]
-    return [g.strip() for g in v.split(",") if g.strip()] if isinstance(v, str) else []
-
-
-def load_steam(data_dir: Path) -> SteamData:
-    data_dir = Path(data_dir)
-    missing = [f for f in (REVIEWS, USERS_ITEMS, BUNDLES,
-                           GAMES) if not (data_dir / f).is_file()]
-    if missing:
-        raise FileNotFoundError(
-            f"missing {missing} in {data_dir}; run `uv run python scripts/get_data steam`"
-        )
-    return SteamData(
-        interactions=load_interactions(data_dir / USERS_ITEMS),
-        reviews=load_reviews(data_dir / REVIEWS),
-        items=load_items(data_dir / GAMES),
-        bundles=load_bundles(data_dir / BUNDLES),
-    )
+def load_prepped(cfg: Config) -> dict[str, pd.DataFrame]:
+    """{'interactions_train': df, ..., 'items': df, 'bundles': df} for the configured sample."""
+    out = prepped_dir(cfg)
+    if not out.is_dir():
+        raise FileNotFoundError(f"{out} not found; run `make prep` (or `uv run assignment-2 prep`)")
+    return {p.stem: pd.read_parquet(p) for p in sorted(out.glob("*.parquet"))}
