@@ -137,7 +137,15 @@ def load_interactions(path: Path, keep_user: Callable[[str], bool] | None = None
         for it in u.get("items", [])
     ]  # fmt: skip
     df = pd.DataFrame(rows, columns=["user_id", "item_id", "playtime_forever", "playtime_2weeks"])
-    return df.astype({"playtime_forever": "int32", "playtime_2weeks": "int32"})
+    df = df.astype({"playtime_forever": "int32", "playtime_2weeks": "int32"})
+    # One row per (user, game). A duplicate pair could land in both train and test,
+    # leaking the answer; keep the row with the most playtime.
+    return (
+        df.sort_values("playtime_forever", ascending=False, kind="stable")
+        .drop_duplicates(["user_id", "item_id"])
+        .sort_index()
+        .reset_index(drop=True)
+    )
 
 
 def load_reviews(path: Path, keep_user: Callable[[str], bool] | None = None) -> pd.DataFrame:

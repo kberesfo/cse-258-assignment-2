@@ -9,8 +9,17 @@ Models and evaluation should read data only through load_prepped, so every model
 trains and is scored on the same cached split.
 """
 
-from .prep import load_prepped, prep
+from .candidates import ranking_candidates
+from .prep import load_prepped, prep, read_meta
 from .split import Splits
 from .steam import SteamData, load_steam
 
-__all__ = ["Splits", "SteamData", "load_prepped", "load_steam", "prep"]
+__all__ = [
+    "Splits",
+    "SteamData",
+    "load_prepped",
+    "load_steam",
+    "prep",
+    "ranking_candidates",
+    "read_meta",
+]
