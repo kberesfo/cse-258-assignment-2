@@ -5,10 +5,11 @@ import inspect
 
 from assignment_2.modules.config import Config
 
-from .base import ScoringModel
-from .bias import BiasModel
+from .ranking.base import ScoringModel
+from .ranking.bias import BiasModel
+from .ranking.lfm import SVDModel
+
 # from .popularity import PopularityModel
-from .svd import SVDModel
 
 MODELS: dict[str, type[ScoringModel]] = {
     # "popularity": PopularityModel,
