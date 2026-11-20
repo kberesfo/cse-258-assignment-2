@@ -9,7 +9,7 @@ both run this. Datasets that need no download, like `synthetic`, are simply not 
     uv run python scripts/get_data --force        # re-download, even if present
 
 Files are kept as downloaded (e.g. .json.gz stays compressed); loaders in
-modules/core/datasets.py read them directly. .zip and .tar.gz archives are extracted.
+modules/data/steam.py read them directly. .zip and .tar.gz archives are extracted.
 Add a sha256 to a File to pin its exact bytes.
 """
 
@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from assignment_2.modules.config import get_config
-from assignment_2.modules.core.datasets import parse_record
+from assignment_2.modules.data.records import parse_record
 
 CONFIG = get_config()
 DATA_DIR = CONFIG.paths.data_dir
@@ -65,7 +65,7 @@ def check_jsonl_gz(dest: Path) -> str:
     return "; ".join(parts) or "no .json.gz files found"
 
 
-# Add the group's dataset here, using the same key as its loader in LOADERS.
+# Add the group's dataset here, using the same key as its loader in dataset.
 # Options and links: https://cseweb.ucsd.edu/~jmcauley/datasets.html
 STEAM = "https://mcauleylab.ucsd.edu/public_datasets/data/steam"
 STEAM_V2 = "https://cseweb.ucsd.edu/~wckang"
