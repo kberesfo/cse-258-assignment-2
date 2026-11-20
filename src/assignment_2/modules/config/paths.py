@@ -50,13 +50,7 @@ class Paths(_Section):
 
     def ensure(self) -> "Paths":
         # Git doesn't keep empty folders, so create the output dirs on demand.
-        for d in (self.art_dir, self.splits, self.preds, self.results_dir, self.figures):
+        for d in (self.art_dir, self.results_dir, self.figures):
             d.mkdir(parents=True, exist_ok=True)
+
         return self
-
-
-
-
-
-
-
