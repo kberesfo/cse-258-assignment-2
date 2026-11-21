@@ -10,9 +10,12 @@
 
 from pathlib import Path
 
+from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 from cycler import cycler
 from matplotlib.figure import Figure
+import numpy as np
+from numpy.typing import ArrayLike
 
 from assignment_2.modules.config import Config, get_config
 
@@ -58,3 +61,24 @@ def save(fig: Figure, name: str, cfg: Config | None = None) -> Path:
     path = cfg.paths.figures / filename
     fig.savefig(path, dpi=150, bbox_inches="tight")
     return path
+
+
+def log_hist(
+    ax: Axes,
+    values: ArrayLike,
+    xlabel: str,
+    ylabel: str,
+    title: str = "",
+    n_bins: int = 40,
+    log_y: bool = False,
+) -> Axes:
+    """Histogram with log-spaced bins on a log x-axis, for long-tailed counts. Returns ax."""
+    values = np.asarray(values, dtype=float)
+    if (values <= 0).any():
+        raise ValueError("log_hist needs values > 0; filter out zeros first")
+    bins = np.geomspace(values.min(), values.max(), n_bins + 1)
+    ax.hist(values, bins=bins)
+    ax.set(xscale="log", yscale="log" if log_y else "linear",
+           xlabel=xlabel, ylabel=ylabel, title=title)  # fmt: skip
+    
+    return ax
