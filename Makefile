@@ -1,4 +1,5 @@
 # CSE 258 Assignment 2
+#   make setup      download + prep: everything a fresh container needs
 #   make data       download the dataset named in config.toml -> data/
 #   make prep       load + clean + split data          -> artifacts/
 #   make train      fit baselines and models           -> artifacts/
@@ -17,6 +18,7 @@ RUN      ?= uv run
 CLI      ?= $(RUN) assignment-2
 
 NB       := notebooks/workbook.ipynb
+DATA     := data
 ART      := artifacts
 RES      := results
 HIST     := $(RES)_history
@@ -24,8 +26,10 @@ SUB      := submit
 STAMP    := $(ART)/.stamps
 SRC      := $(shell find src -name '*.py' 2>/dev/null) pyproject.toml uv.lock $(wildcard config.toml)
 
-.PHONY: data prep train eval figures results final snapshot diff sync workbook check submit \
+.PHONY: setup data prep train eval figures results final snapshot diff sync workbook check submit \
         lint fmt test clean clean-all
+
+setup: data prep
 
 data:
 	$(RUN) python scripts/get_data
@@ -39,7 +43,7 @@ eval:    $(STAMP)/eval
 figures: $(STAMP)/figures
 results: figures
 
-$(STAMP)/prep: $(SRC)
+$(STAMP)/prep: $(SRC) $(wildcard $(DATA)/*/*.gz) | data
 	$(CLI) prep
 	@mkdir -p $(@D) && touch $@
 
