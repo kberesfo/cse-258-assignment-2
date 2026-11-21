@@ -1,4 +1,5 @@
 """Pure metric functions: arrays in, numbers out."""
+import math
 
 import numpy as np
 import pandas as pd
@@ -8,13 +9,15 @@ from scipy.stats import rankdata
 
 def calc_mse(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     """Mean squared error."""
-    y_true, y_pred = np.asarray(y_true, dtype=float), np.asarray(y_pred, dtype=float)
+    y_true, y_pred = np.asarray(
+        y_true, dtype=float), np.asarray(y_pred, dtype=float)
     return float(np.mean((y_true - y_pred) ** 2))
 
 
 def calc_mae(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     """Mean absolute error."""
-    y_true, y_pred = np.asarray(y_true, dtype=float), np.asarray(y_pred, dtype=float)
+    y_true, y_pred = np.asarray(
+        y_true, dtype=float), np.asarray(y_pred, dtype=float)
     return float(np.mean(np.abs(y_true - y_pred)))
 
 
@@ -51,6 +54,13 @@ def calc_auc(y_true: ArrayLike, y_score: ArrayLike) -> float:
     return float((ranks[labels].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
+def top_share(counts: pd.Series, frac: float) -> float:
+    """Share of all rows held by the top `frac` of items (e.g. 0.01 for the top 1%)."""
+    counts = counts.sort_values(ascending=False)
+    k = max(1, math.ceil(len(counts) * frac))
+    return float(counts.iloc[:k].sum() / counts.sum())
+
+
 def ranking_per_user(
     users: ArrayLike, labels: ArrayLike, scores: ArrayLike, k: int, seed: int = 0
 ) -> dict[str, np.ndarray]:
@@ -60,7 +70,8 @@ def ranking_per_user(
     the overall score is the mean and callers can resample users.
     """
     codes, _ = pd.factorize(np.asarray(users))
-    labels, scores = np.asarray(labels, dtype=float), np.asarray(scores, dtype=float)
+    labels, scores = np.asarray(
+        labels, dtype=float), np.asarray(scores, dtype=float)
     tiebreak = np.random.default_rng(seed).random(len(codes))
     order = np.lexsort((tiebreak, -scores, codes))
     codes, labels = codes[order], labels[order]
@@ -71,11 +82,13 @@ def ranking_per_user(
     positive = labels > 0
 
     hits = np.bincount(codes[positive & in_top_k], minlength=n_users) > 0
-    dcg = np.bincount(codes, weights=positive * in_top_k / np.log2(ranks + 1), minlength=n_users)
+    dcg = np.bincount(codes, weights=positive * in_top_k /
+                      np.log2(ranks + 1), minlength=n_users)
     n_positive = np.bincount(codes[positive], minlength=n_users)
     if (n_positive == 0).any():
         raise ValueError("every user needs at least one positive label")
-    ideal = np.cumsum(np.r_[0, 1 / np.log2(np.arange(2, k + 2))])[np.minimum(n_positive, k)]
+    ideal = np.cumsum(
+        np.r_[0, 1 / np.log2(np.arange(2, k + 2))])[np.minimum(n_positive, k)]
 
     first_hit = np.full(n_users, len(codes) + 1)
     np.minimum.at(first_hit, codes[positive], ranks[positive])
