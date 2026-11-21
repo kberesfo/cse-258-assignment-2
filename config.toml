@@ -1,6 +1,5 @@
 # The group's agreed settings. Personal overrides belong in .env or --config.
 dataset = "steam"       # a key in DATASETS (scripts/get_data)
-task = "ranking"
 seed = 258
 
 [sample]

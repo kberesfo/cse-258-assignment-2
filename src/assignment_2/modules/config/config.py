@@ -3,7 +3,7 @@
 Sources, highest priority first:
   1. keyword overrides passed to load()          (the CLI uses this for --seed, --data-dir, ...)
   2. environment variables, prefixed A2_         (A2_SEED=1, A2_PATHS__DATA_DIR=/data,
-                                                  A2_MODELS__BIAS__LAM=5.0)
+                                                  A2_MODELS__SVD__N_FACTORS=20)
   3. .env at the repo root                       (same names as 2; gitignored, personal)
   4. extra TOML via load(path) / A2_CONFIG       (personal experiment overrides)
   5. config.toml at the repo root                (committed: the group's agreed settings)
@@ -16,19 +16,24 @@ Usage (CLI, notebooks, scripts):
     from assignment_2.modules.config import get_config
     cfg = get_config()
     cfg.paths.data_dir
-    cfg.params("bias")           # -> {"lam": 1.0, ...} from [models.bias]
+    cfg.params("svd")            # -> {"target": "playtime", "neg_ratio": 4, ...}
 
-Example config.toml:
+Example config.toml (see the committed one for the group's settings):
     dataset = "steam"
     seed = 258
 
-    [split]
-    valid_frac = 0.1
-    test_frac = 0.1
-    by_time = true
+    [sample]
+    user_frac = 0.1
 
-    [models.bias]
-    lam = 1.0
+    [split]
+    holdout = "count"
+    n_holdout = 1
+
+    [evaluation]
+    n_negatives = 99
+
+    [models.svd]
+    n_factors = 50
 """
 
 import functools
@@ -45,10 +50,10 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+from .evaluation import Evaluation
 from .paths import DEFAULT_FILE, REPO_ROOT, Paths
 from .sample import Sample
 from .split import Split
-from .evaluation import Evaluation
 
 
 class Config(BaseSettings):
@@ -60,9 +65,7 @@ class Config(BaseSettings):
         frozen=True,
     )
 
-    dataset: str = ""  # a key in LOADERS (modules/core/datasets.py)
-    # selects the target and metrics
-    task: Literal["rating", "binary", "ranking"] = "rating"
+    dataset: str = ""  # a key in DATASETS (scripts/get_data)
     seed: int = 258
     paths: Paths = Paths()
     split: Split = Split()
