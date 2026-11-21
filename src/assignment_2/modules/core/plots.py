@@ -10,11 +10,11 @@
 
 from pathlib import Path
 
-from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
-from cycler import cycler
-from matplotlib.figure import Figure
 import numpy as np
+from cycler import cycler
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
 from numpy.typing import ArrayLike
 
 from assignment_2.modules.config import Config, get_config
@@ -80,5 +80,5 @@ def log_hist(
     ax.hist(values, bins=bins)
     ax.set(xscale="log", yscale="log" if log_y else "linear",
            xlabel=xlabel, ylabel=ylabel, title=title)  # fmt: skip
-    
+
     return ax
