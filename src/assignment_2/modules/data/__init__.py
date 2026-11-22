@@ -13,13 +13,17 @@ from .candidates import ranking_candidates
 from .prep import load_prepped, prep, read_meta
 from .split import Splits
 from .steam import SteamData, load_steam
+from .tasks import drop_pairs, held_out_pairs, train_tables
 
 __all__ = [
     "Splits",
     "SteamData",
+    "drop_pairs",
+    "held_out_pairs",
     "load_prepped",
     "load_steam",
     "prep",
     "ranking_candidates",
     "read_meta",
+    "train_tables"
 ]

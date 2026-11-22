@@ -4,7 +4,7 @@
         play_{train,valid,test}.parquet         task A: held-out games played >= min_minutes
         play_{valid,test}_candidates.parquet    fixed ranking candidates for task A
         own_{train,valid,test}.parquet          task B: held-out owned games (log playtime)
-        reviews_{train,valid,test}.parquet
+        reviews.parquet                         all reviews, unsplit (filtered per task in tasks.py)
         items.parquet, bundles.parquet, meta.json
 
 Later stages and notebooks read these with load_prepped(), which takes seconds instead
@@ -107,12 +107,11 @@ def prep(cfg: Config) -> Path:
 
     # Task B: hold out any owned game; the target is its playtime.
     own = split_by_user(owned, cfg.split.engagement, cfg.seed)
-    reviews = split_by_user(
-        data.reviews, cfg.split.reviews, cfg.seed, time_col="posted")
 
-    tables = {"play": play, "own": own, "reviews": reviews}
-    split_cfgs = {"play": cfg.split.play,
-                  "own": cfg.split.engagement, "reviews": cfg.split.reviews}
+    # Reviews are side information for both tasks, not a task of their own, so they're
+    # kept whole. Reviews of a task's held-out pairs are dropped per task (tasks.py).
+    tables = {"play": play, "own": own}
+    split_cfgs = {"play": cfg.split.play, "own": cfg.split.engagement}
     for name, s in tables.items():
         print(f"[prep] {name}: {s.summary()}")
         _check_nonempty(name, s, split_cfgs[name])
@@ -134,13 +133,18 @@ def prep(cfg: Config) -> Path:
             f"[prep] {split} candidates: {len(c):,} rows, {c.user_id.nunique():,} users")
 
     # Write meta.json last, after every table: a cache without it is incomplete.
+    # Old tables go first: load_prepped() reads every *.parquet here, so a file from an
+    # earlier layout (e.g. interactions_train) would otherwise linger and get loaded.
     (out / META).unlink(missing_ok=True)
+    for old in out.glob("*.parquet"):
+        old.unlink()
     for name, s in tables.items():
         for split in SPLITS:
             getattr(s, split).to_parquet(
                 out / f"{name}_{split}.parquet", index=False)
     for split, c in candidates.items():
         c.to_parquet(out / f"play_{split}_candidates.parquet", index=False)
+    data.reviews.to_parquet(out / "reviews.parquet", index=False)
     data.items.to_parquet(out / "items.parquet", index=False)
     data.bundles.to_parquet(out / "bundles.parquet", index=False)
 
@@ -156,9 +160,8 @@ def prep(cfg: Config) -> Path:
             },
             "own": {"all": _table_stats(owned), **_split_stats(tables["own"])},
             "reviews": {
-                "all": _table_stats(data.reviews),
+                **_table_stats(data.reviews),
                 "undated_share": float(data.reviews["posted"].isna().mean()),
-                **_split_stats(tables["reviews"]),
             },
             "candidates": {
                 split: {
@@ -192,7 +195,7 @@ def read_meta(cfg: Config) -> dict[str, Any]:
 
 
 def load_prepped(cfg: Config) -> dict[str, pd.DataFrame]:
-    """{'play_train': df, 'own_valid': df, ..., 'items': df, 'bundles': df} for the sample."""
+    """{'play_train': df, 'own_valid': df, 'reviews': df, ...} for the configured sample."""
     saved = read_meta(cfg)["settings"]
     current = _settings(cfg)
     if saved != current:

@@ -20,6 +20,7 @@ from collections.abc import Callable
 from pydantic import ValidationError
 
 from assignment_2.modules.config import Config, load
+from assignment_2.modules.data.tasks import train_tables
 
 
 def _common() -> argparse.ArgumentParser:
@@ -76,31 +77,10 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
 
     t = load_prepped(cfg)  # refuses a cache built with different settings
 
-    # Every valid/test candidate pair (held-out games + their sampled negatives).
-    # Models must never train on these pairs:
-    #   - as training negatives: TrainData.exclude keeps them out of negative sampling;
-    #   - through reviews: the review split is made independently of the ownership split
-    #     (latest dated reviews vs a random held-out game), so a user's review of their
-    #     held-out game can land in reviews_train. Seeing "user reviewed X" all but reveals
-    #     that X is owned, so those reviews are dropped here, once, for every model.
-    candidates = pd.concat(
-        [t["interactions_valid_candidates"], t["interactions_test_candidates"]]
-    )
-    exclude = candidates[["user_id", "item_id"]]
-    reviews = t["reviews_train"].merge(
-        exclude.drop_duplicates(), how="left", on=["user_id", "item_id"], indicator=True
-    )
-    reviews = reviews[reviews["_merge"] == "left_only"].drop(columns="_merge")
-    n_dropped = len(t["reviews_train"]) - len(reviews)
-    print(f"[train] dropped {n_dropped:,} training reviews of held-out games")
-
-    data = TrainData(
-        interactions=t["interactions_train"],
-        items=t["items"],
-        bundles=t["bundles"],
-        reviews=reviews,
-        exclude=exclude,
-    )
+    tables = train_tables(t, args.task)
+    print(
+        f"[train] {args.task}: dropped {tables.pop('n_reviews_dropped'):,} reviews of held-out games")
+    data = TrainData(**tables)
 
     out = prepped_dir(cfg) / "models"
     out.mkdir(parents=True, exist_ok=True)

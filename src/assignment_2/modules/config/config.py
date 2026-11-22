@@ -16,7 +16,7 @@ Usage (CLI, notebooks, scripts):
     from assignment_2.modules.config import get_config
     cfg = get_config()
     cfg.paths.data_dir
-    cfg.split.play.min_minutes   # one Split section per table being split
+    cfg.split.play.min_minutes   # one Split section per task
     cfg.params("svd")            # -> {"target": "playtime", "neg_ratio": 4, ...}
 
 Example config.toml (see the committed one for the group's settings):
@@ -73,7 +73,7 @@ class Config(BaseSettings):
     dataset: str = ""  # a key in DATASETS (scripts/get_data)
     seed: int = 258
     paths: Paths = Paths()
-    split: SplitConfig = SplitConfig()  # [split.play], [split.engagement], [split.reviews]
+    split: SplitConfig = SplitConfig()  # [split.play], [split.engagement]
     sample: Sample = Sample()
     evaluation: Evaluation = Evaluation()
     models: dict[str, dict[str, Any]] = {}  # [models.<name>] hyperparameters
@@ -113,7 +113,8 @@ class Config(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        toml = TomlConfigSettingsSource(settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
+        toml = TomlConfigSettingsSource(
+            settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
         return (init_settings, env_settings, dotenv_settings, toml)
 
 
