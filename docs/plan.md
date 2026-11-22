@@ -23,16 +23,20 @@ We started with "predict which games a user owns." The EDA argued against it:
   but only by about +0.09 on play. Games sold together are owned together whether or not
   the user wants them; predicting play removes most of that.
 - **Playtime helps once play is the target.** Ranking by how many users *played* a game
-  beats ranking by how many *own* it (Hit@10 0.399 vs 0.351 at 120 minutes). On the
-  ownership task the two are identical.
+  beats ranking by how many *own* it (Hit@10 0.405 vs 0.357 at 120 minutes), and the lead
+  grows with the threshold (+0.028 at 5 min, +0.063 at 240). On the ownership task the two
+  are identical.
 
 ### Why 120 minutes
 
 - It's Steam's refund window: a refund is offered within two weeks of purchase and with
   under two hours of playtime. Past 2 hours, the user has kept and committed to the game.
-- It keeps 91% of evaluated users (5,949 vs 6,534 for ownership).
-- Every baseline scores higher than at 5 minutes, and Jaccard's margin over popularity is
-  about the same (+0.091 vs +0.094).
+- It keeps 91% of validation users (5,946 of 6,535 for ownership; `explore_play` §2).
+- The data doesn't pick a threshold: above 0 minutes, Jaccard's margin over the best
+  popularity score is flat (+0.102 at 5 min, +0.094 at 30, +0.095 at 60, +0.092 at 120,
+  +0.093 at 240). Higher thresholds only cost users (88% kept at 240 min).
+- Scores rise with the threshold because longer-played games skew popular, so we compare
+  margins within a threshold, never scores across thresholds.
 - **5 minutes is kept as a robustness check** ("played at all, excluding launch-only
   sessions").
 
@@ -41,7 +45,8 @@ We started with "predict which games a user owns." The EDA argued against it:
 Engagement is only weakly related to popularity: across games with ≥ 5 owners, owners vs
 median log playtime has Spearman ρ = 0.19 (play rate 0.20, playtime among players 0.13).
 Predicting how long someone plays an owned game is not just re-learning which games are
-popular.
+popular: within a user, owner popularity orders their held-out games poorly (Spearman
+0.165), while each game's average playtime orders them well (0.536).
 
 ## 2. Evaluation protocol
 
@@ -69,11 +74,16 @@ would leak held-out pairs).
 ### Task B (engagement)
 
 - **Split:** 3 owned games held out per user for validation and 3 for test (users need at
-  least 7 owned games; 6,020 users). Includes never-played games (target 0).
+  least 7 owned games; 6,020 users, 99.6% of whom keep all 3 after cold drops). Includes
+  never-played games (target 0).
+- **Weighting:** every user contributes 3 held-out games, so metrics weight users equally,
+  while train rows are dominated by large, mostly unplayed libraries. That's why valid has
+  fewer never-played games than train (31.0% vs 36.3%); weighted by user, train matches
+  (30.8%), so the split is representative.
 - **Metrics:** MSE and MAE on log(1 + minutes), plus within-user Spearman over each user's
-  3 held-out games (does the model order a user's games correctly?). Users whose held-out
-  games are all tied (e.g. all 0 minutes) have no defined rank correlation; how many there
-  are, and how to handle them, is still to be checked.
+  3 held-out games (does the model order a user's games correctly?). Spearman is reported
+  over the 94% of users where it's defined; the rest have all 3 held-out games tied,
+  nearly always all at 0 minutes.
 
 ### Both tasks
 
@@ -109,27 +119,53 @@ played game; the LFM makes no assumption at all. Each model is tested on both ta
 - **LFM on task A:** rank candidates by predicted hours (does predicting engagement
   transfer to recommending?). Its limitation: it never saw a non-owned game in training.
 
+Within one user, b_u is the same for every game, so a bias model orders a user's games
+exactly as the item averages do (Spearman 0.540 vs 0.536). Only γ_u · γ_i can reorder a
+user's games, so on task B, **within-user Spearman measures what the latent factors add
+beyond biases**, while MSE mostly rewards getting the biases right.
+
 ### Training choices to ablate
 
 - Owned games under 120 min, for BPR: included in the matrix as positives ("owned beats
   not owned"), or left out of it, in which case `implicit` can sample them as negatives
   (*hard negatives*: owned but not played).
 - LFM target: log(1 + minutes) vs played ≥ 120 min (0/1).
+- Two-part (hurdle) model for task B: P(played) × E[log minutes | played]. 31% of held-out
+  targets are 0, but an item-level hurdle equals the item mean (MSE 5.586 vs 5.587); it can
+  only help once P(played) depends on the user, so it belongs with the models.
 - Implicit ALS (Hu, Koren & Volinsky 2008) with playtime as confidence, as a third
   latent-factor variant if time allows.
 
 ## 4. Baselines
 
-| Task A (Hit@10, valid, 120 min) | | Task B (MSE on log1p minutes) |
-|---|---|---|
-| random | 0.090 | global mean |
-| owner popularity | 0.357 | bias model (μ + b_u + b_i) |
-| play rate (shrunk) | 0.345* | |
-| play popularity | 0.399* | |
-| **Jaccard to played history** | **0.490***, the bar for BPR | |
+All on validation. Task A is scored on the cached `play_valid_candidates`
+(`explore_play` §4); task B on `own_valid` (`explore_own` §4).
 
-Random and owner popularity are scored on the cached `play_valid_candidates` (EDA §7).
-\* From `explore_play`'s own candidates; to be re-scored on the cached candidates.
+**Task A** (120 min, 5,946 users)
+
+| Baseline | Hit@10 | NDCG@10 | MRR |
+|---|---|---|---|
+| random | 0.090 | 0.041 | 0.049 |
+| play rate (shrunk, a = 10) | 0.350 | 0.192 | 0.169 |
+| owner popularity | 0.357 | 0.213 | 0.190 |
+| play popularity | 0.405 | 0.246 | 0.220 |
+| **Jaccard to played history** | **0.497** | **0.303** | **0.264** |
+
+Jaccard is the bar for BPR.
+
+**Task B** (log1p minutes, 6,020 users)
+
+| Baseline | MSE | MAE | Within-user Spearman |
+|---|---|---|---|
+| global mean | 9.890 | 2.784 | undefined (one value per user) |
+| user mean (λ = 5) | 8.902 | 2.567 | undefined |
+| owner popularity | | | 0.165 |
+| item mean (λ = 1) | 5.587 | 1.871 | 0.536 |
+| **bias model** (μ + b_u + b_i, λ = 5) | **5.029** | **1.781** | **0.540** |
+
+The bias model is the bar for the LFM on both MSE and Spearman. The game matters far more
+than the user: the item mean removes ~4× more error than the user mean (−4.30 vs −0.99 MSE
+from the global mean). Owner popularity's 0.165 is the bar for BPR on task B.
 
 ## 5. Rejected or deferred
 
@@ -149,8 +185,8 @@ Random and owner popularity are scored on the cached `play_valid_candidates` (ED
 
 1. ~~Move the 120-minute play split into `prep`~~ (done: `[split.play] min_minutes = 120`,
    `[split.engagement]` for task B).
-2. `eda_tasks.ipynb`: threshold table (5 / 30 / 60 / 120 / 240 min), task B tie check,
-   held-out vs train distributions; re-score the `explore_play` baselines on the cache.
+2. ~~Threshold table, task B tie check, held-out vs train, baselines on the cache~~ (done:
+   `explore_play`, `explore_own`).
 3. `evaluate_scores` and `compare` (bootstrap intervals) for task A; MSE / MAE /
    within-user Spearman for task B.
 4. BPR-MF (`implicit`), with the under-120-minute ablation.
