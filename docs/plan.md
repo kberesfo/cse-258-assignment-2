@@ -1,204 +1,274 @@
-# Plan: predicting play on Steam
+# CSE 258 Assignment 2
 
-How we got to the current approach, and what we're building next. Numbers are from the
-10% user sample (`users_0.1`) and will be re-checked on the full data.
+Group project for CSE 258 (Recommender Systems & Web Mining), Fall 2026.
 
-## 1. Task
+**Tasks:** game recommendation on Steam, from implicit feedback (ownership + playtime) in the
+Steam v1 Australian users data.
 
-**Main task (A), ranking:** given a user's library, rank 100 candidate games so the game
-they go on to **play for at least 2 hours** comes first. The other 99 candidates are games
-they don't own.
+- **A (main, ranking):** given a user's library, rank 100 candidates so the held-out game they
+  **played for at least 2 hours** comes first. The other 99 are popularity-weighted games they
+  don't own. Hit@10, NDCG@10, MRR, with bootstrap confidence intervals.
+- **B (engagement):** given that a user owns a game, predict how long they play it, as
+  log(1 + minutes). MSE, MAE, and within-user Spearman.
 
-**Supporting task (B), engagement:** given that a user owns a game, predict how long they
-play it, as log(1 + minutes).
+Why these tasks, the protocol, and the baselines to beat: [`docs/plan.md`](docs/plan.md).
 
-### Why "play", not "own"
+Deliverables (see [`docs/`](docs/) for the full spec):
 
-We started with "predict which games a user owns." The EDA argued against it:
+1. `workbook.html`: the notebook, exported with outputs. Graders read it without running it.
+2. `video_url.txt`: a link to a ~20-minute presentation (Google Drive mp4 or YouTube).
+3. Peer grading report, due about a week after submission.
 
-- **Ownership is a weak preference signal.** 36% of owned games were never played, and 62%
-  were played for under 2 hours (bundles, sales, free-to-play installs).
-- **Part of the ownership task is just recovering bundles.** A personalized baseline
-  (Jaccard similarity to the user's library) beat popularity by +0.21 Hit@10 on ownership,
-  but only by about +0.09 on play. Games sold together are owned together whether or not
-  the user wants them; predicting play removes most of that.
-- **Playtime helps once play is the target.** Ranking by how many users *played* a game
-  beats ranking by how many *own* it (Hit@10 0.405 vs 0.357 at 120 minutes), and the lead
-  grows with the threshold (+0.028 at 5 min, +0.063 at 240). On the ownership task the two
-  are identical.
+The presentation and notebook are graded together on five sections: **predictive task,
+exploratory analysis, modeling, evaluation, related work** (5 marks each, plus 4 for peer
+grading). The notebook follows that order.
 
-### Why 120 minutes
+---
 
-- It's Steam's refund window: a refund is offered within two weeks of purchase and with
-  under two hours of playtime. Past 2 hours, the user has kept and committed to the game.
-- It keeps 91% of validation users (5,946 of 6,535 for ownership; `explore_play` §2).
-- The data doesn't pick a threshold: above 0 minutes, Jaccard's margin over the best
-  popularity score is flat (+0.102 at 5 min, +0.094 at 30, +0.095 at 60, +0.092 at 120,
-  +0.093 at 240). Higher thresholds only cost users (88% kept at 240 min).
-- Scores rise with the threshold because longer-played games skew popular, so we compare
-  margins within a threshold, never scores across thresholds.
-- **5 minutes is kept as a robustness check** ("played at all, excluding launch-only
-  sessions").
+## Getting started
 
-### Why task B is its own task
+### GitHub Codespaces (recommended)
 
-Engagement is only weakly related to popularity: across games with ≥ 5 owners, owners vs
-median log playtime has Spearman ρ = 0.19 (play rate 0.20, playtime among players 0.13).
-Predicting how long someone plays an owned game is not just re-learning which games are
-popular: within a user, owner popularity orders their held-out games poorly (Spearman
-0.165), while each game's average playtime orders them well (0.536).
+**Code → Codespaces → Create codespace on main.** On creation the devcontainer runs
+`uv sync --locked && make setup`, which downloads the Steam data and builds the prepped
+cache, so `load_prepped(get_config())` works as soon as it opens.
 
-## 2. Evaluation protocol
+### Local devcontainer
 
-Both tasks are built once in `prep` from the same user sample and cached; each model trains
-on its own task's split (training on one task's train set and scoring the other's test set
-would leak held-out pairs).
+Open the repo in VS Code and choose **Dev Containers: Reopen in Container**. Same setup as
+Codespaces.
 
-### Task A (play)
+### Without a container
 
-- **Split:** leave-one-out per user among *played* (≥ 120 min) games: one for validation,
-  one for test. Users need at least 3 played games (5,946 validation users). Owned games
-  under 120 minutes stay in training as context and are never held out.
-- **Candidates:** the held-out game + 99 games the user owns in **no** split, drawn from
-  training games and **sampled in proportion to popularity**, once, in `prep`, so every
-  model ranks the same rows.
-  - *Why popularity-weighted:* with ownership as the positive and uniform negatives, the
-    held-out game was ~90× more popular than the negatives (median owners 630 vs 7), so
-    popularity alone found it. With popularity weighting and play as the positive, the gap
-    is ~3× (median 821 vs 260), so the test measures personalization.
-- **Owned but under 120 minutes:** neither a positive nor a negative in evaluation.
-- **Metrics:** Hit@10, NDCG@10, MRR per user, averaged. 95% bootstrap intervals over
-  users, and paired bootstrap intervals on the difference between a model and its
-  baseline.
+Requires [uv](https://docs.astral.sh/uv/).
 
-### Task B (engagement)
+```bash
+uv sync
+make setup
+```
 
-- **Split:** 3 owned games held out per user for validation and 3 for test (users need at
-  least 7 owned games; 6,020 users, 99.6% of whom keep all 3 after cold drops). Includes
-  never-played games (target 0).
-- **Weighting:** every user contributes 3 held-out games, so metrics weight users equally,
-  while train rows are dominated by large, mostly unplayed libraries. That's why valid has
-  fewer never-played games than train (31.0% vs 36.3%); weighted by user, train matches
-  (30.8%), so the split is representative.
-- **Metrics:** MSE and MAE on log(1 + minutes), plus within-user Spearman over each user's
-  3 held-out games (does the model order a user's games correctly?). Spearman is reported
-  over the 94% of users where it's defined; the rest have all 3 held-out games tied,
-  nearly always all at 0 minutes.
+Select the `.venv` interpreter as the notebook kernel.
 
-### Both tasks
+---
 
-- **Cold items:** held-out rows whose game never appears in training are dropped (45 per
-  task, under 0.4% for A). For task A this check runs before the under-120-minute rows are
-  added back to training, so a few games owned (but not played) by others are dropped too.
-  It removes rows, never leaks; left as is.
-- **Leakage guards:** no training negative is one of the task's held-out pairs
-  (`TrainData.exclude`). A review of a held-out game reveals the answer (284 play / 408
-  engagement held-out pairs have one), so `data/tasks.py` drops reviews of each task's
-  held-out pairs before any model sees them. Reviews themselves are kept unsplit: no task
-  predicts them.
-- Tune on validation; score test once.
+## Common commands
 
-## 3. Models: two ways to adapt latent factors to implicit feedback
+Everything goes through `make`. `prep` reruns only when code in `src/`, `config.toml`, or the
+downloaded data changes.
 
-Both have the same form, μ + b_u + b_i + γ_u · γ_i. They differ in what they're trained to do.
+| Command          | What it does                                                        |
+| ---------------- | ------------------------------------------------------------------- |
+| `make setup`     | `data` + `prep`: everything a fresh environment needs               |
+| `make data`      | Download the dataset named in `config.toml` into `data/`            |
+| `make prep`      | Sample users, split, build candidate tables → `artifacts/steam/<tag>/` |
+| `make train`     | Fit all registered models on task A → `artifacts/steam/<tag>/models/play/` |
+| `make eval`      | Score models on validation → `results/metrics.json` *(not implemented yet)* |
+| `make figures`   | Plots for the slides *(not implemented yet; figures come from notebooks)* |
+| `make results`   | `prep` + `train` + `eval` + `figures`                               |
+| `make final`     | Also score the test split; run once models are frozen               |
+| `make workbook`  | Execute the notebook → `submit/workbook.html`                       |
+| `make check`     | Run the autograder's checks, including the video download           |
+| `make submit`    | `final` + `workbook` + `check`                                      |
+| `make lint`      | Ruff lint and format check                                          |
+| `make fmt`       | Auto-fix lint and formatting                                        |
+| `make test`      | Run tests                                                           |
 
-| | **BPR-MF** | **LFM on log-hours** |
-|---|---|---|
-| Trained on | pairs (u, played game i, non-owned game j) | owned games only |
-| Objective | score(i) > score(j) (pairwise, ranking) | squared error on log(1 + minutes) |
-| Assumption about non-owned games | ranks *below* played games (relative) | **none**: never seen in training |
-| Native task | A (ranking) | B (engagement) |
+Force a rerun with `make -B prep`.
 
-One latent factor model, two training objectives. The point of the comparison: **"not
-owned" is not "disliked."** A non-owned game may be unknown, unaffordable, or exactly what
-the user would love, which is what a recommender is for. BPR only assumes it ranks below a
-played game; the LFM makes no assumption at all. Each model is tested on both tasks:
+The CLI can also be called directly:
 
-- **BPR on task B:** its scores aren't in hours, so we use within-user rank correlation
-  (does it order a user's owned games by playtime?).
-- **LFM on task A:** rank candidates by predicted hours (does predicting engagement
-  transfer to recommending?). Its limitation: it never saw a non-owned game in training.
+```bash
+uv run assignment-2 --help
+uv run assignment-2 models                     # list registered models
+uv run assignment-2 train --model svd          # train one model (default: all) on task A
+uv run assignment-2 train --task engagement    # task B; models go to models/engagement/
+uv run assignment-2 prep --seed 1              # any setting can be overridden per run
+```
 
-Within one user, b_u is the same for every game, so a bias model orders a user's games
-exactly as the item averages do (Spearman 0.540 vs 0.536). Only γ_u · γ_i can reorder a
-user's games, so on task B, **within-user Spearman measures what the latent factors add
-beyond biases**, while MSE mostly rewards getting the biases right.
+---
 
-### Training choices to ablate
+## Repository layout
 
-- Owned games under 120 min, for BPR: included in the matrix as positives ("owned beats
-  not owned"), or left out of it, in which case `implicit` can sample them as negatives
-  (*hard negatives*: owned but not played).
-- LFM target: log(1 + minutes) vs played ≥ 120 min (0/1).
-- Two-part (hurdle) model for task B: P(played) × E[log minutes | played]. 31% of held-out
-  targets are 0, but an item-level hurdle equals the item mean (MSE 5.586 vs 5.587); it can
-  only help once P(played) depends on the user, so it belongs with the models.
-- Implicit ALS (Hu, Koren & Volinsky 2008) with playtime as confidence, as a third
-  latent-factor variant if time allows.
+```
+.
+├── .devcontainer/            # Codespaces / devcontainer config
+├── config.toml               # the group's settings: dataset, sample, split, evaluation, models
+├── data/                     # raw datasets (gitignored, fetched by scripts/get_data)
+├── artifacts/                # regenerable outputs: prepped cache, trained models (gitignored)
+├── results/                  # committed outputs: metrics.json, figures/
+├── docs/                     # assignment spec, plans
+├── notebooks/
+│   ├── workbook.ipynb        # the submission: one section per rubric item
+│   ├── eda.ipynb             # exploratory analysis feeding the EDA section
+│   ├── explore_play.ipynb    # task A: thresholds and baselines
+│   ├── explore_own.ipynb     # task B: holdout checks and baselines
+│   └── scratch/<name>/       # personal exploration; never imported from
+├── scripts/
+│   ├── get_data/             # dataset registry + downloader
+│   └── check_submission/     # the spec's autograder checks
+├── src/assignment_2/
+│   ├── cli.py                # subcommands: prep, train, eval, figures, models
+│   └── modules/
+│       ├── config/           # settings (pydantic-settings), loaded from config.toml
+│       ├── data/             # loading, sampling, splitting, candidate tables, cache
+│       │   ├── steam.py      # Steam loader: raw files -> tidy tables
+│       │   ├── split.py      # per-user split (leave-n-out or fraction)
+│       │   ├── candidates.py # fixed ranking candidates (positives + sampled negatives)
+│       │   ├── prep.py       # prep stage (both tasks), meta.json, load_prepped
+│       │   └── tasks.py      # train_tables(): a task's training tables, leaks removed
+│       ├── core/
+│       │   ├── metrics.py    # per-user ranking metrics (Hit, NDCG, MRR), MSE, MAE
+│       │   ├── evaluate.py   # bootstrap CIs and model comparison (in progress)
+│       │   └── plots.py      # shared figure style, save(), log_hist()
+│       └── models/
+│           ├── registry.py   # MODELS and build()
+│           └── ranking/      # ScoringModel interface, TrainData, Surprise models
+├── tests/
+├── Makefile
+└── pyproject.toml
+```
 
-## 4. Baselines
+**Rule of thumb:** logic lives in `src/`, and notebooks only call it and display results.
 
-All on validation. Task A is scored on the cached `play_valid_candidates`
-(`explore_play` §4); task B on `own_valid` (`explore_own` §4).
+---
 
-**Task A** (120 min, 5,946 users)
+## Data
 
-| Baseline | Hit@10 | NDCG@10 | MRR |
-|---|---|---|---|
-| random | 0.090 | 0.041 | 0.049 |
-| play rate (shrunk, a = 10) | 0.350 | 0.192 | 0.169 |
-| owner popularity | 0.357 | 0.213 | 0.190 |
-| play popularity | 0.405 | 0.246 | 0.220 |
-| **Jaccard to played history** | **0.497** | **0.303** | **0.264** |
+Datasets are **not committed**. `config.toml` selects the dataset (`steam`), and
+`make data` downloads it (about 80 MB):
 
-Jaccard is the bar for BPR.
+- `australian_users_items`: ownership + playtime, one row per (user, game)
+- `australian_user_reviews`: reviews with a recommend flag and post date
+- `steam_games`: game metadata (genres, tags, price, release date)
+- `bundle_data`: bundles and their games
 
-**Task B** (log1p minutes, 6,020 users)
+```bash
+uv run python scripts/get_data --list    # status of every dataset entry
+```
 
-| Baseline | MSE | MAE | Within-user Spearman |
-|---|---|---|---|
-| global mean | 9.890 | 2.784 | undefined (one value per user) |
-| user mean (λ = 5) | 8.902 | 2.567 | undefined |
-| owner popularity | | | 0.165 |
-| item mean (λ = 1) | 5.587 | 1.871 | 0.536 |
-| **bias model** (μ + b_u + b_i, λ = 5) | **5.029** | **1.781** | **0.540** |
+### Prepped cache
 
-The bias model is the bar for the LFM on both MSE and Spearman. The game matters far more
-than the user: the item mean removes ~4× more error than the user mean (−4.30 vs −0.99 MSE
-from the global mean). Owner popularity's 0.165 is the bar for BPR on task B.
+`make prep` builds everything models and notebooks use, in `artifacts/steam/<tag>/`
+(`<tag>` is `users_0.1` for the 10% dev sample, `full` for all users):
 
-## 5. Rejected or deferred
+| Table                                  | Contents                                                     |
+| -------------------------------------- | ------------------------------------------------------------ |
+| `play_{train,valid,test}`              | task A: one played (≥ 120 min) game per user held out for valid and test; train also keeps owned games under 120 min |
+| `play_{valid,test}_candidates`         | each held-out game + 99 sampled non-owned games (`label`)    |
+| `own_{train,valid,test}`               | task B: 3 owned games per user held out for valid and test   |
+| `owned`                                | every owned (user, game) with playtime, unsplit (for EDA)    |
+| `reviews`, `items`, `bundles`          | supporting tables (reviews unsplit; filtered per task)       |
+| `meta.json`                            | the settings that built the cache + dataset statistics       |
 
-- **Treating non-owned games as confident zeros** (pointwise SVD with sampled negatives):
-  it trains the model to treat the very games it should recommend as disliked. The current
-  Surprise models still do this (`neg_ratio = 4`) until the negative-free LFM is in.
-- **Low playtime as "dislike"** for the ownership task: playtime is a snapshot with no
-  purchase date, so "under 2 hours" can mean disliked, not started yet, or just bought.
-  Refunded games never appear in the data at all.
-- **Negative reviews as negatives:** the cleanest dislike signal, but ~11% of ~6K reviews,
-  far too few against 5M ownership rows. Possible as an EDA check instead.
-- **Predicting the review `recommend` flag:** 89.1% positive and few reviews.
-- **Bundle and metadata features:** bundles cover 14% of games; metadata is missing for
-  several of the most-owned titles. Possible later ablations.
+Read it with:
 
-## 6. Next steps
+```python
+from assignment_2.modules.config import get_config
+from assignment_2.modules.data import load_prepped, read_meta, train_tables
 
-1. ~~Move the 120-minute play split into `prep`~~ (done: `[split.play] min_minutes = 120`,
-   `[split.engagement]` for task B).
-2. ~~Threshold table, task B tie check, held-out vs train, baselines on the cache~~ (done:
-   `explore_play`, `explore_own`).
-3. `evaluate_scores` and `compare` (bootstrap intervals) for task A; MSE / MAE /
-   within-user Spearman for task B.
-4. BPR-MF (`implicit`), with the under-120-minute ablation.
-5. The negative-free LFM (Surprise, owned games only: `neg_ratio = 0`), with per-task
-   model settings; task B baselines (global mean, bias model).
-6. Cross-task tests (BPR on B, LFM on A).
-7. Re-run everything on `user_frac = 1.0` for the final numbers.
+cfg = get_config()
+t = load_prepped(cfg)              # refuses a cache built with different settings
+tables = train_tables(t, "play")   # or "engagement": training tables, held-out pairs removed
+```
 
-## References
+If `config.toml` changes (seed, `[sample]`, `[split.*]`, `[evaluation]`), `load_prepped` raises
+"run `make prep`" rather than returning stale splits.
 
-- Hu, Koren & Volinsky, *Collaborative Filtering for Implicit Feedback Datasets*, ICDM 2008.
-- Rendle et al., *BPR: Bayesian Personalized Ranking from Implicit Feedback*, UAI 2009.
-- Kang & McAuley, *Self-Attentive Sequential Recommendation*, ICDM 2018 (Steam data; 100-candidate protocol).
-- Krichene & Rendle, *On Sampled Metrics for Item Recommendation*, KDD 2020.
-- Steam refund policy: https://store.steampowered.com/steam_refunds/
+### Development sample
+
+`[sample] user_frac = 0.1` keeps a fixed, hash-based 10% of users with their whole
+libraries, so `prep` takes seconds. Figures saved from a sample get the tag in their file name
+(`games_per_user.users_0.1.png`). **Set `user_frac = 1.0` for final results.**
+
+---
+
+## Evaluation protocol
+
+Full details and the reasoning behind them: [`docs/plan.md`](docs/plan.md) §2.
+
+**Task A (`[split.play]`)**
+- **Split:** leave-one-out per user among games played ≥ 120 minutes (`min_minutes`): one for
+  validation, one for test. Users need at least 3 played games. Owned games under 120 minutes
+  stay in train and are never held out.
+- **Candidates:** each held-out game is ranked against 99 games the user owns in no split,
+  drawn from train games in proportion to popularity (`[evaluation]`) and sampled once in
+  `prep`, so every model scores the same rows.
+- **Metrics:** Hit@10, NDCG@10, MRR per user, averaged; 95% bootstrap intervals over users, and
+  bootstrap intervals on the *difference* between a model and its baseline.
+
+**Task B (`[split.engagement]`)**
+- **Split:** 3 owned games per user held out for validation and 3 for test (users need at least
+  7 owned games), including never-played games (target 0).
+- **Metrics:** MSE and MAE on log(1 + minutes); within-user Spearman over each user's held-out
+  games, averaged over users where it's defined (~94%).
+
+**Both**
+- Held-out games never seen in train are dropped (`drop_cold`).
+- A review of a held-out game reveals the answer, so `train_tables` drops reviews of each
+  task's held-out pairs, and lists the pairs in `exclude` so no model samples them as
+  training negatives.
+- Each model trains on its own task's split; tune on `valid`, score `test` once (`make final`).
+
+---
+
+## Working together
+
+### Branches and PRs
+
+- Branch from `main` as `<type>/<topic>` (e.g. `task/eda`, `chore/hot-fix`) and merge by PR.
+- Run `make lint test` before opening a PR.
+- If a PR changes `results/metrics.json`, include the `make diff` output in its description.
+
+### Adding a model
+
+1. Subclass `ScoringModel` (`modules/models/ranking/base.py`), or `SurpriseModel` for a
+   Surprise algorithm:
+   - `fit(self, data: TrainData) -> Self` receives one task's training tables from
+     `train_tables` (train interactions, items, bundles, reviews with held-out pairs removed)
+     plus `exclude`, the task's held-out pairs, never to use as training negatives.
+   - `predict(self, rows) -> np.ndarray` returns one score per row, in order. For task A only
+     the order matters (higher = more likely to be played); for task B it's the predicted
+     log(1 + minutes).
+   - The first line of the class docstring is shown by `assignment-2 models`.
+2. Register it in `MODELS` in `modules/models/registry.py`.
+3. Put hyperparameters in `config.toml` under `[models.<name>]`; they're passed to the
+   constructor by name, plus `seed` if the constructor accepts one.
+4. Run `uv run assignment-2 train --model <name>` (add `--task engagement` for task B).
+
+Models never sample their own evaluation negatives or split the data: they read the prepped
+cache, so every model is compared on identical rows.
+
+### Notebooks
+
+- **`workbook.ipynb` is shared.** Coordinate before editing it, and keep cells short:
+  import, call, display.
+- `notebooks/scratch/<name>/` is yours. Experiment freely; move anything worth keeping
+  into `src/`. Clear outputs from scratch notebooks before committing.
+- Start each notebook with `use_style()` from `core/plots.py`, and save figures with `save()`.
+- `jupytext.toml` pairs notebooks with `py:percent` scripts. To build or rebuild a notebook
+  from a `.py`: `uv run jupytext --to ipynb notebooks/<name>.py`.
+- After editing `config.toml` while a kernel is running, call `get_config.cache_clear()`. After
+  pulling changes to `src/` (especially `config/`), restart the kernel.
+
+### Reproducibility
+
+- Use `cfg.seed` for anything random.
+- Add dependencies with `uv add <pkg>` (or `uv add --dev <pkg>`) and commit `uv.lock`.
+
+---
+
+## Submitting
+
+1. Set `[sample] user_frac = 1.0`, then `make submit` builds `submit/workbook.html` and runs
+   the checks.
+2. Upload the mp4 to Google Drive, set sharing to **Anyone with the link**, and paste the
+   link as the only line of `submit/video_url.txt`.
+3. Run `make check` again, then upload `workbook.html` and `video_url.txt` to Gradescope.
+
+Late submissions aren't accepted, because submissions are redistributed for peer grading.
+Check Gradescope for the exact deadline.
+
+| Milestone            | Date                       |
+| -------------------- | -------------------------- |
+| Submission           | Week 10, Tue (Gradescope)  |
+| Peer grading         | Week 11                    |

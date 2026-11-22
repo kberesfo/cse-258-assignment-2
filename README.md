@@ -121,7 +121,8 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 │       ├── core/
 │       │   ├── metrics.py    # per-user ranking metrics (Hit, NDCG, MRR), MSE, MAE
 │       │   ├── evaluate.py   # bootstrap CIs and model comparison (in progress)
-│       │   └── plots.py      # shared figure style, save(), log_hist()
+│       │   ├── plots.py      # shared figure style, save(), log_hist()
+│       │   └── similarity.py # Jaccard / cosine / overlap, vectorized; interaction_matrix
 │       └── models/
 │           ├── registry.py   # MODELS and build()
 │           └── ranking/      # ScoringModel interface, TrainData, Surprise models

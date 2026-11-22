@@ -1,3 +1,5 @@
+"""Set-similarity metrics, vectorized over all pairs of a sparse 0/1 matrix."""
+
 from typing import Literal
 
 import numpy as np
@@ -48,11 +50,11 @@ def interaction_matrix(df: pd.DataFrame) -> tuple[sp.csr_matrix, pd.Index, pd.In
     return (X > 0).astype(np.float64), users, items  # > 0 collapses any duplicate rows
 
 
-def item_similarity(X: sp.csr_matrix, metric: SimMetric = "jaccard"):
+def item_similarity(X: sp.csr_matrix, metric: SimMetric = "jaccard") -> sp.csr_matrix:
     """Game × game similarity from a user × game matrix: games compared by their users."""
     return column_similarity(X, metric)  # games, compared by their users
 
 
-def user_similarity(X: sp.csr_matrix, metric: SimMetric = "jaccard"):
+def user_similarity(X: sp.csr_matrix, metric: SimMetric = "jaccard") -> sp.csr_matrix:
     """User × user similarity from a user × game matrix: users compared by their games."""
     return column_similarity(X.T.tocsr(), metric)
