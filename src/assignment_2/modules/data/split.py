@@ -76,12 +76,13 @@ def split_by_user(
         n_valid = np.where(eligible, split.n_holdout, 0)
     else:
         n_test = np.where(
-            eligible & (split.test_frac > 0), np.maximum(
-                np.floor(n_dated * split.test_frac), 1), 0
+            eligible & (split.test_frac > 0), np.maximum(np.floor(n_dated * split.test_frac), 1), 0
         )
         n_valid = np.where(
             eligible & (split.valid_frac > 0),
-            np.maximum(np.floor(n_dated * split.valid_frac), 1), 0)
+            np.maximum(np.floor(n_dated * split.valid_frac), 1),
+            0,
+        )
     # Never hold out all of a user's dated rows: train always keeps at least one.
     n_test = np.minimum(n_test, np.maximum(n_dated - 1, 0))
     n_valid = np.minimum(n_valid, np.maximum(n_dated - 1 - n_test, 0))
@@ -97,8 +98,7 @@ def split_by_user(
         # A model can't score an item it never saw in training; every held-out user
         # already has train rows by construction, so only items need checking.
         seen = train["item_id"].unique()
-        keep_v, keep_t = valid["item_id"].isin(
-            seen), test["item_id"].isin(seen)
+        keep_v, keep_t = valid["item_id"].isin(seen), test["item_id"].isin(seen)
         n_cold = int((~keep_v).sum() + (~keep_t).sum())
         valid = valid[keep_v].reset_index(drop=True)
         test = test[keep_t].reset_index(drop=True)

@@ -1,4 +1,12 @@
-from .metrics import calc_accuracy, calc_auc, calc_ber, calc_mae, calc_mse, top_share, ranking_per_user
+from .metrics import (
+    calc_accuracy,
+    calc_auc,
+    calc_ber,
+    calc_mae,
+    calc_mse,
+    ranking_per_user,
+    top_share,
+)
 from .plots import log_hist, save, use_style
 
 __all__ = [

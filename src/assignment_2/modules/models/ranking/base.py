@@ -1,4 +1,5 @@
-"""
+"""Shared model interface (fit / predict), plus the Surprise plumbing.
+
 Every model: `fit(data) -> self`, then `predict(rows) -> scores` aligned to `rows`
 (one float per row). What a score means depends on the task: for play, higher = more
 likely to be played (only the order matters); for engagement, the predicted
@@ -47,10 +48,8 @@ def sample_negatives(
     """`ratio` negatives per positive, per user: train games the user doesn't own and
     that aren't in `exclude`. Uniform over train games. Returns user_id, item_id."""
     rng = np.random.default_rng(seed)
-    users, u_codes = np.unique(
-        positives["user_id"].to_numpy(), return_inverse=True)
-    items, i_codes = np.unique(
-        positives["item_id"].to_numpy(), return_inverse=True)
+    users, u_codes = np.unique(positives["user_id"].to_numpy(), return_inverse=True)
+    items, i_codes = np.unique(positives["item_id"].to_numpy(), return_inverse=True)
     n_items = len(items)
 
     # Forbidden pairs as single integers: owned in train, plus excluded pairs.
@@ -60,8 +59,7 @@ def sample_negatives(
         ei = pd.Index(items).get_indexer(exclude["item_id"])
         # pairs outside train can never be sampled anyway
         ok = (eu >= 0) & (ei >= 0)
-        forbidden = np.concatenate(
-            [forbidden, eu[ok].astype(np.int64) * n_items + ei[ok]])
+        forbidden = np.concatenate([forbidden, eu[ok].astype(np.int64) * n_items + ei[ok]])
     forbidden = np.unique(forbidden)
 
     need = np.bincount(u_codes, minlength=len(users)) * ratio
@@ -71,8 +69,7 @@ def sample_negatives(
 
     chosen = np.empty(0, dtype=np.int64)
     for _ in range(20):  # rejection sampling; each round fills almost all the gap
-        have = np.bincount(chosen // n_items,
-                           minlength=len(users)) if len(chosen) else 0
+        have = np.bincount(chosen // n_items, minlength=len(users)) if len(chosen) else 0
         gap = need - have
         if not gap.any():
             break
@@ -107,8 +104,7 @@ class SurpriseModel(ScoringModel):
         seed: int = 0,
     ) -> None:
         if neg_ratio < 1:
-            raise ValueError(
-                "neg_ratio must be >= 1 (without negatives every target is > 0)")
+            raise ValueError("neg_ratio must be >= 1 (without negatives every target is > 0)")
         self.target, self.neg_ratio, self.seed = target, neg_ratio, seed
         self.algo: AlgoBase | None = None
         self.trainset: Trainset | None = None
@@ -117,8 +113,7 @@ class SurpriseModel(ScoringModel):
     def _make_algo(self) -> AlgoBase: ...
 
     @abstractmethod
-    def _score(self, u: NDArray[np.int64],
-               i: NDArray[np.int64]) -> NDArray[np.float64]: ...
+    def _score(self, u: NDArray[np.int64], i: NDArray[np.int64]) -> NDArray[np.float64]: ...
 
     def _target(self, positives: pd.DataFrame) -> NDArray[np.float64]:
         if self.target == "owned":
@@ -138,18 +133,15 @@ class SurpriseModel(ScoringModel):
 
     def fit(self, data: TrainData) -> Self:
         rows = self._training_rows(data)
-        reader = Reader(rating_scale=(
-            float(rows.target.min()), float(rows.target.max())))
-        self.trainset = Dataset.load_from_df(
-            rows, reader).build_full_trainset()
+        reader = Reader(rating_scale=(float(rows.target.min()), float(rows.target.max())))
+        self.trainset = Dataset.load_from_df(rows, reader).build_full_trainset()
         self.algo = self._make_algo()
         self.algo.fit(self.trainset)
         return self
 
     def predict(self, rows: pd.DataFrame) -> NDArray[np.float64]:
         if self.algo is None or self.trainset is None:
-            raise RuntimeError(
-                f"{type(self).__name__}.predict called before fit")
+            raise RuntimeError(f"{type(self).__name__}.predict called before fit")
         u = rows["user_id"].map(self.trainset._raw2inner_id_users)
         i = rows["item_id"].map(self.trainset._raw2inner_id_items)
         # Candidates only contain train users and items, so a miss is a pipeline bug.

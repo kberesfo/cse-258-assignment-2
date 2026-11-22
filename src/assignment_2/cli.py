@@ -32,15 +32,11 @@ def _common() -> argparse.ArgumentParser:
     p.add_argument(
         "--config", help="extra TOML overrides (default: $A2_CONFIG); config.toml always applies"
     )
-    g = p.add_argument_group(
-        "paths (default: from config; env A2_PATHS__DATA_DIR etc.)")
+    g = p.add_argument_group("paths (default: from config; env A2_PATHS__DATA_DIR etc.)")
     g.add_argument("--data-dir", help="raw datasets (from scripts/get_data)")
-    g.add_argument(
-        "--art-dir", help="regenerable outputs: splits, trained models")
-    g.add_argument("--results-dir",
-                   help="committed outputs: metrics.json, figures/")
-    p.add_argument("--seed", type=int,
-                   help="random seed (default: from config)")
+    g.add_argument("--art-dir", help="regenerable outputs: splits, trained models")
+    g.add_argument("--results-dir", help="committed outputs: metrics.json, figures/")
+    p.add_argument("--seed", type=int, help="random seed (default: from config)")
     return p
 
 
@@ -73,19 +69,16 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
     names = args.model or list(MODELS)
     unknown = sorted(set(names) - set(MODELS))
     if unknown:
-        sys.exit(
-            f"unknown model(s): {', '.join(unknown)} (see `assignment-2 models`)")
+        sys.exit(f"unknown model(s): {', '.join(unknown)} (see `assignment-2 models`)")
     if not names:
-        sys.exit(
-            "no models registered yet: add one to MODELS in modules/models/registry.py")
+        sys.exit("no models registered yet: add one to MODELS in modules/models/registry.py")
 
     t = load_prepped(cfg)  # refuses a cache built with different settings
 
     # The task's training tables, with its held-out pairs removed (see data/tasks.py).
     tables = train_tables(t, args.task)
     n_dropped = tables.pop("n_reviews_dropped")
-    print(
-        f"[train] {args.task}: dropped {n_dropped:,} reviews of held-out games")
+    print(f"[train] {args.task}: dropped {n_dropped:,} reviews of held-out games")
     data = TrainData(**tables)
 
     # One folder per task: each task trains on its own split, so the models differ.
@@ -97,18 +90,15 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
         path = out / f"{name}.pkl"
         with path.open("wb") as f:
             pickle.dump(model, f)
-        print(
-            f"[train] {args.task}/{name}: fit in {time.perf_counter() - start:.1f}s -> {path}")
+        print(f"[train] {args.task}/{name}: fit in {time.perf_counter() - start:.1f}s -> {path}")
 
 
 def cmd_eval(cfg: Config, args: argparse.Namespace) -> None:
-    raise NotImplementedError(
-        "evaluation is being settled in notebooks; see core/evaluate.py")
+    raise NotImplementedError("evaluation is being settled in notebooks; see core/evaluate.py")
 
 
 def cmd_figures(cfg: Config, args: argparse.Namespace) -> None:
-    raise NotImplementedError(
-        "figures are made in the notebooks for now (core/plots.py)")
+    raise NotImplementedError("figures are made in the notebooks for now (core/plots.py)")
 
 
 def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
@@ -126,18 +116,15 @@ def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     common = _common()
-    parser = argparse.ArgumentParser(
-        prog="assignment-2", description=__doc__.split("\n\n")[0])
-    sub = parser.add_subparsers(
-        dest="command", required=True, metavar="command")
+    parser = argparse.ArgumentParser(prog="assignment-2", description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True, metavar="command")
 
     def add(name: str, fn: Callable, help: str) -> argparse.ArgumentParser:
         p = sub.add_parser(name, parents=[common], help=help, description=help)
         p.set_defaults(func=fn)
         return p
 
-    add("prep", cmd_prep,
-        "sample, split, and build candidate tables -> artifacts/steam/<tag>/")
+    add("prep", cmd_prep, "sample, split, and build candidate tables -> artifacts/steam/<tag>/")
     p = add(
         "train", cmd_train, "fit models on a task's split -> artifacts/steam/<tag>/models/<task>/"
     )
@@ -147,10 +134,8 @@ def build_parser() -> argparse.ArgumentParser:
         choices=TASKS,
         help="play (task A, ranking) or engagement (task B, log playtime); default: play",
     )
-    p.add_argument("--model", action="append",
-                   help="model to train (repeatable; default: all)")
-    p = add("eval", cmd_eval,
-            "score trained models on the fixed split (not implemented yet)")
+    p.add_argument("--model", action="append", help="model to train (repeatable; default: all)")
+    p = add("eval", cmd_eval, "score trained models on the fixed split (not implemented yet)")
     p.add_argument("--split", default="valid", choices=["valid", "test"])
     add("figures", cmd_figures, "plots for the slides (not implemented yet)")
     add("models", cmd_models, "list registered models")

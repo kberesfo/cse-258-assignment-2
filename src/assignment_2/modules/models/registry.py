@@ -29,5 +29,4 @@ def build(name: str, cfg: Config) -> ScoringModel:
     try:
         return cls(**params)
     except TypeError as e:  # a typo or stale key in config.toml
-        raise TypeError(
-            f"[models.{name}] in config doesn't match {cls.__name__}: {e}") from None
+        raise TypeError(f"[models.{name}] in config doesn't match {cls.__name__}: {e}") from None

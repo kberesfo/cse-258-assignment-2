@@ -4,8 +4,6 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .metrics import ranking_per_user
-
 
 @dataclass(frozen=True)
 class Metric:

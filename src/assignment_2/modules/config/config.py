@@ -113,8 +113,7 @@ class Config(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        toml = TomlConfigSettingsSource(
-            settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
+        toml = TomlConfigSettingsSource(settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
         return (init_settings, env_settings, dotenv_settings, toml)
 
 

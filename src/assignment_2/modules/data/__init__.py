@@ -5,7 +5,7 @@
 
     tables = load_prepped(get_config())
     # play_{train,valid,test}, play_{valid,test}_candidates, own_{train,valid,test},
-    # reviews, items, bundles
+    # owned (full table, for EDA), reviews, items, bundles
 
 Models and evaluation should read data only through load_prepped, so every model
 trains and is scored on the same cached split.
@@ -28,5 +28,5 @@ __all__ = [
     "prep",
     "ranking_candidates",
     "read_meta",
-    "train_tables"
+    "train_tables",
 ]

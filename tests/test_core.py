@@ -6,8 +6,8 @@ import pytest
 
 pytest.skip("rewrite for the current pipeline", allow_module_level=True)
 
-from assignment_2.modules.core import features, metrics
 from assignment_2.modules import data
+from assignment_2.modules.core import features, metrics
 
 
 def test_auc_counts_ties_as_half():
@@ -32,8 +32,7 @@ def test_ranking_metrics_by_hand():
 
 
 def test_ndcg_is_one_for_a_perfect_ranking_with_several_positives():
-    result = metrics.ranking_per_user(
-        ["a"] * 4, [1, 1, 0, 0], [4, 3, 2, 1], k=3)
+    result = metrics.ranking_per_user(["a"] * 4, [1, 1, 0, 0], [4, 3, 2, 1], k=3)
     assert result["ndcg@3"] == pytest.approx([1.0])
 
 

@@ -16,7 +16,6 @@ DRIVE = "https://drive.google.com/file/d/ABC123/view?usp=drive_link"
 MP4 = b"\x00\x00\x00\x20ftypisom" + b"\x00" * check.MEGABYTE
 
 
-
 def test_file_id_from_both_url_forms():
     assert check.drive_file_id(DRIVE) == "ABC123"
     assert check.drive_file_id("https://drive.google.com/uc?export=download&id=XYZ") == "XYZ"

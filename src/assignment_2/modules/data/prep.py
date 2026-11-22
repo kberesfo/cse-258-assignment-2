@@ -5,6 +5,7 @@
         play_{valid,test}_candidates.parquet    fixed ranking candidates for task A
         own_{train,valid,test}.parquet          task B: held-out owned games (log playtime)
         reviews.parquet                         all reviews, unsplit (filtered per task in tasks.py)
+        owned.parquet                           every owned (user, game), unsplit (for EDA)
         items.parquet, bundles.parquet, meta.json
 
 Later stages and notebooks read these with load_prepped(), which takes seconds instead
@@ -78,8 +79,7 @@ def _check_nonempty(name: str, s: Splits, split_cfg: Split) -> None:
     empty = [split for split in expected if getattr(s, split).empty]
     if empty:
         raise ValueError(
-            f"{name}: {' and '.join(empty)} split is empty; "
-            "check the [split] and [sample] settings"
+            f"{name}: {' and '.join(empty)} split is empty; check the [split] and [sample] settings"
         )
 
 
@@ -147,6 +147,8 @@ def prep(cfg: Config) -> Path:
     data.reviews.to_parquet(out / "reviews.parquet", index=False)
     data.items.to_parquet(out / "items.parquet", index=False)
     data.bundles.to_parquet(out / "bundles.parquet", index=False)
+    data.interactions.to_parquet(
+        out / "owned.parquet", index=False)  # full table, for EDA
 
     meta = {
         "settings": _settings(cfg),

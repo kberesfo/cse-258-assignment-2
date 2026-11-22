@@ -1,11 +1,11 @@
 """Shared figure style and saving, so every notebook's plots look like one project's.
 
-    from assignment_2.modules.core.plots import use_style, save
+from assignment_2.modules.core.plots import use_style, save
 
-    use_style()                       # once, at the top of a notebook
-    fig, ax = plt.subplots()
-    ...
-    save(fig, "games_per_user")       # -> results/figures/games_per_user.png
+use_style()                       # once, at the top of a notebook
+fig, ax = plt.subplots()
+...
+save(fig, "games_per_user")       # -> results/figures/games_per_user.png
 """
 
 from pathlib import Path
@@ -20,8 +20,7 @@ from numpy.typing import ArrayLike
 from assignment_2.modules.config import Config, get_config
 
 # Okabe-Ito palette: distinguishable with common color-vision deficiencies and in grayscale.
-PALETTE = ["#0072B2", "#E69F00", "#009E73", "#D55E00",
-           "#CC79A7", "#56B4E9", "#F0E442", "#000000"]
+PALETTE = ["#0072B2", "#E69F00", "#009E73", "#D55E00", "#CC79A7", "#56B4E9", "#F0E442", "#000000"]
 
 
 def use_style() -> None:
