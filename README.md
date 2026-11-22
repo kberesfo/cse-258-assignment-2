@@ -98,11 +98,13 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 ├── results/                  # committed outputs: metrics.json, figures/
 ├── docs/                     # assignment spec, plans
 ├── notebooks/
-│   ├── workbook.ipynb        # the submission: one section per rubric item
-│   ├── eda.ipynb             # exploratory analysis feeding the EDA section
-│   ├── explore_play.ipynb    # task A: thresholds and baselines
-│   ├── explore_own.ipynb     # task B: holdout checks and baselines
-│   └── scratch/<name>/       # personal exploration; never imported from
+│   ├── workbook.ipynb            # the submission: one section per rubric item
+│   ├── eda.ipynb                 # exploratory analysis feeding the EDA section
+│   ├── explore_play.ipynb        # task A: threshold choice and baselines
+│   ├── explore_engagement.ipynb  # task B: holdout checks, metric coverage, baselines
+│   ├── task_a_play.ipynb         # task A models: BPR-MF, ablations, LFM on A
+│   ├── task_b_engagement.ipynb   # task B models: LFM, hurdle, BPR on B
+│   └── scratch/<name>/           # personal exploration; never imported from
 ├── scripts/
 │   ├── get_data/             # dataset registry + downloader
 │   └── check_submission/     # the spec's autograder checks
@@ -167,8 +169,8 @@ from assignment_2.modules.config import get_config
 from assignment_2.modules.data import load_prepped, read_meta, train_tables
 
 cfg = get_config()
-t = load_prepped(cfg)              # refuses a cache built with different settings
-tables = train_tables(t, "play")   # or "engagement": training tables, held-out pairs removed
+t = load_prepped(cfg)  # refuses a cache built with different settings
+tables = train_tables(t, "play")  # or "engagement": training tables, held-out pairs removed
 ```
 
 If `config.toml` changes (seed, `[sample]`, `[split.*]`, `[evaluation]`), `load_prepped` raises
