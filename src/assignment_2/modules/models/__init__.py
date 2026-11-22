@@ -1,4 +1,4 @@
-# models/ranking/__init__.py
+# models/__init__.py
 from .ranking.base import ScoringModel
 from .registry import MODELS, build
 
