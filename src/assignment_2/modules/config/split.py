@@ -19,6 +19,8 @@ class Split(_Section):
     drop_cold: bool = True
     # Users with fewer rows stay entirely in train. >= 3 so held-out users keep a train row.
     min_per_user: int = Field(3, ge=3)
+    # Only rows with playtime_forever >= this can be held out ("played"); 0 = any owned row.
+    min_minutes: int = Field(0, ge=0)
 
     @model_validator(mode="after")
     def _leaves_training_data(self) -> "Split":
@@ -28,3 +30,10 @@ class Split(_Section):
         if self.valid_frac + self.test_frac >= 1:
             raise ValueError("valid_frac + test_frac must be < 1")
         return self
+
+
+class SplitConfig(_Section):
+    play: Split = Split(min_minutes=120)
+    engagement: Split = Split(n_holdout=3, min_per_user=7)
+    reviews: Split = Split()
+

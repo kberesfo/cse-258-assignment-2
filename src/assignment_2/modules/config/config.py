@@ -16,6 +16,7 @@ Usage (CLI, notebooks, scripts):
     from assignment_2.modules.config import get_config
     cfg = get_config()
     cfg.paths.data_dir
+    cfg.split.play.min_minutes   # one Split section per table being split
     cfg.params("svd")            # -> {"target": "playtime", "neg_ratio": 4, ...}
 
 Example config.toml (see the committed one for the group's settings):
@@ -25,9 +26,13 @@ Example config.toml (see the committed one for the group's settings):
     [sample]
     user_frac = 0.1
 
-    [split]
-    holdout = "count"
+    [split.play]                 # task A: rank games the user will play
+    min_minutes = 120
     n_holdout = 1
+
+    [split.engagement]           # task B: predict log playtime of owned games
+    n_holdout = 3
+    min_per_user = 7
 
     [evaluation]
     n_negatives = 99
@@ -40,7 +45,7 @@ import functools
 import json
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import PrivateAttr, field_validator
 from pydantic_settings import (
@@ -53,7 +58,7 @@ from pydantic_settings import (
 from .evaluation import Evaluation
 from .paths import DEFAULT_FILE, REPO_ROOT, Paths
 from .sample import Sample
-from .split import Split
+from .split import SplitConfig
 
 
 class Config(BaseSettings):
@@ -68,7 +73,7 @@ class Config(BaseSettings):
     dataset: str = ""  # a key in DATASETS (scripts/get_data)
     seed: int = 258
     paths: Paths = Paths()
-    split: Split = Split()
+    split: SplitConfig = SplitConfig()  # [split.play], [split.engagement], [split.reviews]
     sample: Sample = Sample()
     evaluation: Evaluation = Evaluation()
     models: dict[str, dict[str, Any]] = {}  # [models.<name>] hyperparameters
@@ -79,7 +84,7 @@ class Config(BaseSettings):
     @field_validator("models", mode="after")
     @classmethod
     def _parse_env_values(cls, models: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
-        # Env vars arrive as strings (A2_MODELS__BIAS__LAM=5.0 -> "5.0"); TOML is already typed.
+        # Env vars arrive as strings (A2_MODELS__SVD__N_FACTORS=20 -> "20"); TOML is already typed.
         def parse(v: Any) -> Any:
             if not isinstance(v, str):
                 return v
@@ -108,8 +113,7 @@ class Config(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        toml = TomlConfigSettingsSource(
-            settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
+        toml = TomlConfigSettingsSource(settings_cls, toml_file=list(_TOML_FILES), deep_merge=True)
         return (init_settings, env_settings, dotenv_settings, toml)
 
 

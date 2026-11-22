@@ -1,11 +1,11 @@
 """The prep stage: sample users, split, and cache the tables as parquet.
 
     artifacts/steam/<tag>/              tag = "users_0.1", "full", ...
-        interactions_{train,valid,test}.parquet
-        interactions_{valid,test}_candidates.parquet   fixed ranking candidates (see candidates.py)
+        play_{train,valid,test}.parquet         task A: held-out games played >= min_minutes
+        play_{valid,test}_candidates.parquet    fixed ranking candidates for task A
+        own_{train,valid,test}.parquet          task B: held-out owned games (log playtime)
         reviews_{train,valid,test}.parquet
-        items.parquet, bundles.parquet
-        meta.json                       settings that built this cache + dataset statistics
+        items.parquet, bundles.parquet, meta.json
 
 Later stages and notebooks read these with load_prepped(), which takes seconds instead
 of re-parsing the raw files. load_prepped() refuses a cache whose meta.json settings
@@ -14,6 +14,7 @@ prep fails loudly instead of silently reusing old splits.
 """
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from typing import Any
 import pandas as pd
 
 from assignment_2.modules.config import Config
+from assignment_2.modules.config.split import Split
 
 from .candidates import ranking_candidates
 from .split import Splits, split_by_user
@@ -63,33 +65,64 @@ def _split_stats(s: Splits) -> dict[str, Any]:
     }
 
 
+def _check_nonempty(name: str, s: Splits, split_cfg: Split) -> None:
+    """Raise if a split that should hold rows came out empty.
+
+    Count mode always holds out rows, so valid and test must both be non-empty.
+    Frac mode only checks a split whose fraction is > 0.
+    """
+    expected = [
+        split for split in ("valid", "test")
+        if split_cfg.holdout == "count" or getattr(split_cfg, f"{split}_frac") > 0
+    ]  # fmt: skip
+    empty = [split for split in expected if getattr(s, split).empty]
+    if empty:
+        raise ValueError(
+            f"{name}: {' and '.join(empty)} split is empty; "
+            "check the [split] and [sample] settings"
+        )
+
+
 def prep(cfg: Config) -> Path:
     out = prepped_dir(cfg)
     out.mkdir(parents=True, exist_ok=True)
 
-    data = load_steam(cfg.paths.data_dir / "steam", user_frac=cfg.sample.user_frac, seed=cfg.seed)
+    data = load_steam(cfg.paths.data_dir / "steam",
+                      user_frac=cfg.sample.user_frac, seed=cfg.seed)
     print(f"[prep] {data.summary()}")
 
-    tables: dict[str, Splits] = {
-        "interactions": split_by_user(data.interactions, cfg.split, cfg.seed),
-        "reviews": split_by_user(data.reviews, cfg.split, cfg.seed, time_col="posted"),
-    }
+    owned = data.interactions  # every owned (user, game), with playtime
+    is_played = owned.playtime_forever >= cfg.split.play.min_minutes
+    played, unplayed = owned[is_played], owned[~is_played]
+
+    # Task A: hold out played games only.
+    play = split_by_user(played, cfg.split.play, cfg.seed)
+    # Owned-but-unplayed games go into train only: they show what the user owns, but are
+    # never held out, since we can't say whether the user would have played them.
+    # Kept only for users already in play.train, so that users the split dropped don't
+    # come back with only unplayed games.
+    extra = unplayed[unplayed.user_id.isin(play.train.user_id)]
+    play = replace(play, train=pd.concat(
+        [play.train, extra], ignore_index=True))
+
+    # Task B: hold out any owned game; the target is its playtime.
+    own = split_by_user(owned, cfg.split.engagement, cfg.seed)
+    reviews = split_by_user(
+        data.reviews, cfg.split.reviews, cfg.seed, time_col="posted")
+
+    tables = {"play": play, "own": own, "reviews": reviews}
+    split_cfgs = {"play": cfg.split.play,
+                  "own": cfg.split.engagement, "reviews": cfg.split.reviews}
     for name, s in tables.items():
         print(f"[prep] {name}: {s.summary()}")
-        empty = [split for split in ("valid", "test") if getattr(cfg.split, f"{split}_frac") > 0
-                 and getattr(s, split).empty]  # fmt: skip
-        if empty:
-            raise ValueError(
-                f"{name}: {' and '.join(empty)} split is empty; check [split] and [sample] settings"
-            )
+        _check_nonempty(name, s, split_cfgs[name])
 
-    # Fixed ranking candidates: sampled once here so every model ranks the same games.
-    inter = tables["interactions"]
+    # Fixed ranking candidates for task A: sampled once here so every model ranks the same games.
     candidates = {
         split: ranking_candidates(
-            held_out=getattr(inter, split),
-            train=inter.train,
-            owned=data.interactions,  # every game each user owns, in any split
+            held_out=getattr(play, split),
+            train=play.train,  # includes unplayed: negatives weighted by ownership popularity
+            owned=owned,  # every game each user owns, so unplayed games are never negatives
             n_negatives=cfg.evaluation.n_negatives,
             seed=cfg.seed + offset,
             negatives=cfg.evaluation.negatives,
@@ -97,15 +130,17 @@ def prep(cfg: Config) -> Path:
         for offset, split in enumerate(("valid", "test"), start=1)
     }
     for split, c in candidates.items():
-        print(f"[prep] {split} candidates: {len(c):,} rows, {c.user_id.nunique():,} users")
+        print(
+            f"[prep] {split} candidates: {len(c):,} rows, {c.user_id.nunique():,} users")
 
     # Write meta.json last, after every table: a cache without it is incomplete.
     (out / META).unlink(missing_ok=True)
     for name, s in tables.items():
         for split in SPLITS:
-            getattr(s, split).to_parquet(out / f"{name}_{split}.parquet", index=False)
+            getattr(s, split).to_parquet(
+                out / f"{name}_{split}.parquet", index=False)
     for split, c in candidates.items():
-        c.to_parquet(out / f"interactions_{split}_candidates.parquet", index=False)
+        c.to_parquet(out / f"play_{split}_candidates.parquet", index=False)
     data.items.to_parquet(out / "items.parquet", index=False)
     data.bundles.to_parquet(out / "bundles.parquet", index=False)
 
@@ -113,10 +148,13 @@ def prep(cfg: Config) -> Path:
         "settings": _settings(cfg),
         "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "stats": {
-            "interactions": {
-                "all": _table_stats(data.interactions),
-                **_split_stats(tables["interactions"]),
+            "play": {
+                "min_minutes": cfg.split.play.min_minutes,
+                "played_all": _table_stats(played),
+                "unplayed_added_to_train": len(extra),
+                **_split_stats(tables["play"]),
             },
+            "own": {"all": _table_stats(owned), **_split_stats(tables["own"])},
             "reviews": {
                 "all": _table_stats(data.reviews),
                 "undated_share": float(data.reviews["posted"].isna().mean()),
@@ -154,7 +192,7 @@ def read_meta(cfg: Config) -> dict[str, Any]:
 
 
 def load_prepped(cfg: Config) -> dict[str, pd.DataFrame]:
-    """{'interactions_train': df, ..., 'items': df, 'bundles': df} for the configured sample."""
+    """{'play_train': df, 'own_valid': df, ..., 'items': df, 'bundles': df} for the sample."""
     saved = read_meta(cfg)["settings"]
     current = _settings(cfg)
     if saved != current:

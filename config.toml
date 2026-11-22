@@ -5,14 +5,24 @@ seed = 258
 [sample]
 user_frac = 0.1         # dev runs on 10% of users; set 1.0 for final results
 
-[split]
-holdout = "count"       # count: leave-n-out per user | frac: valid_frac / test_frac of each user's rows
+[split.play]            # task A: rank games the user will play
+min_minutes = 120       # "played" = playtime_forever >= this
+holdout = "count"
 n_holdout = 1           # leave-one-out, as in SASRec
-valid_frac = 0.1        # used only when holdout = "frac"
-test_frac = 0.1
-by_time = true          # reviews only; ownership data has no timestamps, so it splits randomly
-drop_cold = true        # remove held-out rows whose item never appears in train
-min_per_user = 3
+min_per_user = 3        # 1 valid + 1 test + >= 1 train
+drop_cold = true
+
+[split.engagement]      # task B: predict log playtime of owned games
+holdout = "count"
+n_holdout = 3           # several per user, so within-user rank correlation is defined
+min_per_user = 7        # 3 valid + 3 test + >= 1 train
+drop_cold = true
+
+[split.reviews]         # supporting table; split by date
+holdout = "count"
+n_holdout = 1
+by_time = true
+
 
 [evaluation]
 n_negatives = 99        # sampled negatives per user in the fixed candidate tables
