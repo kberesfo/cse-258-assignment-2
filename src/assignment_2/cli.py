@@ -1,10 +1,10 @@
 """Command-line entry point: one subcommand per pipeline stage.
 
     uv run assignment-2 prep
-    uv run assignment-2 train --model popularity --model bias
-    uv run assignment-2 eval
-    uv run assignment-2 figures
-    uv run assignment-2 models            # list registered models
+    uv run assignment-2 train --model bias --model svd   # default: every registered model
+    uv run assignment-2 models                           # list registered models
+    uv run assignment-2 eval                             # not implemented yet
+    uv run assignment-2 figures                          # not implemented yet
 
 Every subcommand accepts --data-dir / --art-dir / --results-dir / --seed, so the
 Makefile can pass them in any order. Stage code lives in assignment_2.modules and is
@@ -12,6 +12,7 @@ imported lazily, so `--help` stays fast even with heavy ML dependencies installe
 """
 
 import argparse
+import pickle
 import sys
 import time
 from collections.abc import Callable
@@ -57,29 +58,70 @@ def cmd_prep(cfg: Config, args: argparse.Namespace) -> None:
 
 
 def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
-    from assignment_2.modules import models
+    import pandas as pd
 
-    names = args.model or list(models.MODELS)
-    unknown = sorted(set(names) - set(models.MODELS))
+    from assignment_2.modules.data import load_prepped
+    from assignment_2.modules.data.prep import prepped_dir
+    from assignment_2.modules.models import MODELS, build
+    from assignment_2.modules.models.ranking.base import TrainData
+
+    names = args.model or list(MODELS)
+    unknown = sorted(set(names) - set(MODELS))
     if unknown:
         sys.exit(
             f"unknown model(s): {', '.join(unknown)} (see `assignment-2 models`)")
     if not names:
         sys.exit(
             "no models registered yet: add one to MODELS in modules/models/registry.py")
-    models.train(cfg, names)
+
+    t = load_prepped(cfg)  # refuses a cache built with different settings
+
+    # Every valid/test candidate pair (held-out games + their sampled negatives).
+    # Models must never train on these pairs:
+    #   - as training negatives: TrainData.exclude keeps them out of negative sampling;
+    #   - through reviews: the review split is made independently of the ownership split
+    #     (latest dated reviews vs a random held-out game), so a user's review of their
+    #     held-out game can land in reviews_train. Seeing "user reviewed X" all but reveals
+    #     that X is owned, so those reviews are dropped here, once, for every model.
+    candidates = pd.concat(
+        [t["interactions_valid_candidates"], t["interactions_test_candidates"]]
+    )
+    exclude = candidates[["user_id", "item_id"]]
+    reviews = t["reviews_train"].merge(
+        exclude.drop_duplicates(), how="left", on=["user_id", "item_id"], indicator=True
+    )
+    reviews = reviews[reviews["_merge"] == "left_only"].drop(columns="_merge")
+    n_dropped = len(t["reviews_train"]) - len(reviews)
+    print(f"[train] dropped {n_dropped:,} training reviews of held-out games")
+
+    data = TrainData(
+        interactions=t["interactions_train"],
+        items=t["items"],
+        bundles=t["bundles"],
+        reviews=reviews,
+        exclude=exclude,
+    )
+
+    out = prepped_dir(cfg) / "models"
+    out.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        start = time.perf_counter()
+        model = build(name, cfg).fit(data)
+        path = out / f"{name}.pkl"
+        with path.open("wb") as f:
+            pickle.dump(model, f)
+        print(
+            f"[train] {name}: fit in {time.perf_counter() - start:.1f}s -> {path}")
 
 
 def cmd_eval(cfg: Config, args: argparse.Namespace) -> None:
-    from assignment_2.modules.core import evaluate
-
-    evaluate.evaluate(cfg, split=args.split)
+    raise NotImplementedError(
+        "evaluation is being settled in notebooks; see core/evaluate.py")
 
 
 def cmd_figures(cfg: Config, args: argparse.Namespace) -> None:
-    from assignment_2.modules.core import plots
-
-    plots.figures(cfg)
+    raise NotImplementedError(
+        "figures are made in the notebooks for now (core/plots.py)")
 
 
 def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
@@ -87,8 +129,8 @@ def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
 
     if not models.MODELS:
         print("(none registered)")
-    for name, fn in models.MODELS.items():
-        doc = (fn.__doc__ or "").strip().splitlines()
+    for name, cls in models.MODELS.items():
+        doc = (cls.__doc__ or "").strip().splitlines()
         print(f"  {name:20s} {doc[0] if doc else ''}")
 
 
@@ -109,13 +151,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("prep", cmd_prep,
         "sample, split, and build candidate tables -> artifacts/steam/<tag>/")
-    p = add("train", cmd_train, "fit baselines and models -> artifacts/")
+    p = add("train", cmd_train,
+            "fit models on the prepped split -> artifacts/steam/<tag>/models/")
     p.add_argument("--model", action="append",
                    help="model to train (repeatable; default: all)")
     p = add("eval", cmd_eval,
-            "score trained models on the fixed split -> results/metrics.json")
+            "score trained models on the fixed split (not implemented yet)")
     p.add_argument("--split", default="valid", choices=["valid", "test"])
-    add("figures", cmd_figures, "plots for the notebook and slides -> results/figures/")
+    add("figures", cmd_figures, "plots for the slides (not implemented yet)")
     add("models", cmd_models, "list registered models")
     return parser
 

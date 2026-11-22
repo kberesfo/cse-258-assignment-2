@@ -2,7 +2,10 @@
 
 Group project for CSE 258 (Recommender Systems & Web Mining), Fall 2026.
 
-**Task:** _TBD — predictive task, dataset, and metric go here once chosen._
+**Task:** top-k game recommendation on Steam. Given a user's library, rank the games they own
+but we held out above games they don't own. Implicit feedback (ownership + playtime) from the
+Steam v1 Australian users data; evaluated with leave-one-out against 99 sampled negatives per
+user (Hit@10, NDCG@10, MRR, with bootstrap confidence intervals).
 
 Deliverables (see [`docs/`](docs/) for the full spec):
 
@@ -20,8 +23,9 @@ grading). The notebook follows that order.
 
 ### GitHub Codespaces (recommended)
 
-**Code → Codespaces → Create codespace on main.** The devcontainer runs `uv sync` and
-`make data` on creation, so the environment and dataset are ready when it opens.
+**Code → Codespaces → Create codespace on main.** On creation the devcontainer runs
+`uv sync --locked && make setup`, which downloads the Steam data and builds the prepped
+cache, so `load_prepped(get_config())` works as soon as it opens.
 
 ### Local devcontainer
 
@@ -34,7 +38,7 @@ Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
 uv sync
-make data
+make setup
 ```
 
 Select the `.venv` interpreter as the notebook kernel.
@@ -43,35 +47,35 @@ Select the `.venv` interpreter as the notebook kernel.
 
 ## Common commands
 
-Everything goes through `make`. Each pipeline stage reruns only when code in `src/` or
-`config.toml` changes.
+Everything goes through `make`. `prep` reruns only when code in `src/`, `config.toml`, or the
+downloaded data changes.
 
-| Command          | What it does                                                   |
-| ---------------- | -------------------------------------------------------------- |
-| `make data`      | Download the dataset named in `config.toml` into `data/`       |
-| `make prep`      | Load, clean, and split the data → `artifacts/`                 |
-| `make train`     | Fit all registered models → `artifacts/`                       |
-| `make eval`      | Score every model on validation → `results/metrics.json`       |
-| `make figures`   | Plots for the notebook and slides → `results/figures/`         |
-| `make results`   | All of the above                                               |
-| `make final`     | Also score the test split; run once models are frozen          |
-| `make diff`      | Compare metrics with the previous run                          |
-| `make workbook`  | Execute the notebook → `submit/workbook.html`                  |
-| `make check`     | Run the autograder's checks, including the video download      |
-| `make submit`    | `final` + `workbook` + `check`                                 |
-| `make lint`      | Ruff lint and format check                                     |
-| `make fmt`       | Auto-fix lint and formatting                                   |
-| `make test`      | Run tests, including a full pipeline run on synthetic data     |
+| Command          | What it does                                                        |
+| ---------------- | ------------------------------------------------------------------- |
+| `make setup`     | `data` + `prep`: everything a fresh environment needs               |
+| `make data`      | Download the dataset named in `config.toml` into `data/`            |
+| `make prep`      | Sample users, split, build candidate tables → `artifacts/steam/<tag>/` |
+| `make train`     | Fit all registered models → `artifacts/steam/<tag>/models/`         |
+| `make eval`      | Score models on validation → `results/metrics.json` *(not implemented yet)* |
+| `make figures`   | Plots for the slides *(not implemented yet; figures come from notebooks)* |
+| `make results`   | `prep` + `train` + `eval` + `figures`                               |
+| `make final`     | Also score the test split; run once models are frozen               |
+| `make workbook`  | Execute the notebook → `submit/workbook.html`                       |
+| `make check`     | Run the autograder's checks, including the video download           |
+| `make submit`    | `final` + `workbook` + `check`                                      |
+| `make lint`      | Ruff lint and format check                                          |
+| `make fmt`       | Auto-fix lint and formatting                                        |
+| `make test`      | Run tests                                                           |
 
-Force a rerun with `make -B train`, which also reruns the stages before it.
+Force a rerun with `make -B prep`.
 
 The CLI can also be called directly:
 
 ```bash
 uv run assignment-2 --help
-uv run assignment-2 models                          # list registered models
-uv run assignment-2 train --model popularity        # train one model
-uv run assignment-2 eval --split valid
+uv run assignment-2 models                     # list registered models
+uv run assignment-2 train --model svd          # train one model (default: all)
+uv run assignment-2 prep --seed 1              # any setting can be overridden per run
 ```
 
 ---
@@ -81,65 +85,100 @@ uv run assignment-2 eval --split valid
 ```
 .
 ├── .devcontainer/            # Codespaces / devcontainer config
+├── config.toml               # the group's settings: dataset, sample, split, evaluation, models
 ├── data/                     # raw datasets (gitignored, fetched by scripts/get_data)
-├── artifacts/                # regenerable outputs: splits, trained models (gitignored)
+├── artifacts/                # regenerable outputs: prepped cache, trained models (gitignored)
 ├── results/                  # committed outputs: metrics.json, figures/
-├── docs/                     # assignment spec
+├── docs/                     # assignment spec, plans
 ├── notebooks/
 │   ├── workbook.ipynb        # the submission: one section per rubric item
-│   ├── workbook.py           # jupytext pair of the notebook; review this in PRs
+│   ├── eda.ipynb             # exploratory analysis feeding the EDA section
 │   └── scratch/<name>/       # personal exploration; never imported from
 ├── scripts/
-│   ├── get_data/             # dataset downloads
-│   └── check_submission.py   # the spec's autograder checks
+│   ├── get_data/             # dataset registry + downloader
+│   └── check_submission/     # the spec's autograder checks
 ├── src/assignment_2/
 │   ├── cli.py                # subcommands: prep, train, eval, figures, models
 │   └── modules/
-│       ├── config/           # settings, loaded from config.toml
-│       ├── core/             # the pipeline every model shares
-│       │   ├── datasets.py   # one loader per dataset → the standard table
-│       │   ├── data.py       # cleaning, train/valid/test split, load_split
-│       │   ├── features.py   # ID maps, sparse matrices, library adapters, negatives
-│       │   ├── evaluate.py   # evaluation protocol: scores saved predictions
-│       │   ├── metrics.py    # pure metric functions
-│       │   ├── plots.py      # EDA and model comparison figures
-│       │   └── notebook.py   # display helpers, including show(fn)
-│       └── models/           # one file per model family
-│           ├── base.py       # save_predictions: the contract with evaluation
-│           ├── registry.py   # MODELS and train()
-│           └── baselines.py  # trivial, popularity, bias
-├── submit/                   # workbook.html (gitignored), video_url.txt
+│       ├── config/           # settings (pydantic-settings), loaded from config.toml
+│       ├── data/             # loading, sampling, splitting, candidate tables, cache
+│       │   ├── steam.py      # Steam loader: raw files -> tidy tables
+│       │   ├── split.py      # per-user split (leave-n-out or fraction)
+│       │   ├── candidates.py # fixed ranking candidates (positives + sampled negatives)
+│       │   └── prep.py       # prep stage, meta.json, load_prepped
+│       ├── core/
+│       │   ├── metrics.py    # per-user ranking metrics (Hit, NDCG, MRR)
+│       │   ├── evaluate.py   # bootstrap CIs and model comparison (in progress)
+│       │   └── plots.py      # shared figure style, save(), log_hist()
+│       └── models/
+│           ├── registry.py   # MODELS and build()
+│           └── ranking/      # ScoringModel interface, TrainData, Surprise models
 ├── tests/
-├── config.toml               # the group's dataset, task, split, and hyperparameters
 ├── Makefile
 └── pyproject.toml
 ```
 
 **Rule of thumb:** logic lives in `src/`, and notebooks only call it and display results.
-Graders only see the exported HTML, so use `show(fn)` in the notebook to print the code you
-walk through.
 
 ---
 
 ## Data
 
-Datasets are **not committed**. Until the group picks one, `config.toml` uses `synthetic`, a
-small fake dataset that needs no download. ModCloth is included as a worked example.
+Datasets are **not committed**. `config.toml` selects the dataset (`steam`), and
+`make data` downloads it (about 80 MB):
 
-### Plugging in a dataset
+- `australian_users_items`: ownership + playtime, one row per (user, game)
+- `australian_user_reviews`: reviews with a recommend flag and post date
+- `steam_games`: game metadata (genres, tags, price, release date)
+- `bundle_data`: bundles and their games
 
-1. Add a download entry to `DATASETS` in `scripts/get_data/__main__.py`
-   ([dataset links](https://cseweb.ucsd.edu/~jmcauley/datasets.html)).
-2. Write a loader in `modules/core/datasets.py`, using the same key, that returns the standard
-   table, and add it to `LOADERS`. `load_modcloth` is the template.
-3. Set `dataset` and `task` (`rating`, `binary`, or `ranking`) in `config.toml`.
-4. Run `make data results`.
+```bash
+uv run python scripts/get_data --list    # status of every dataset entry
+```
 
-The standard table has one row per interaction, with `user` and `item`, plus `rating` or
-`label` as the task requires, and an optional `timestamp` in Unix seconds. Extra columns are
-kept for feature-based models. Without timestamps, the split falls back to random.
+### Prepped cache
 
-Set `A2_PATHS__DATA_DIR` to keep data somewhere other than `data/`.
+`make prep` builds everything models and notebooks use, in `artifacts/steam/<tag>/`
+(`<tag>` is `users_0.1` for the 10% dev sample, `full` for all users):
+
+| File                                     | Contents                                               |
+| ---------------------------------------- | ------------------------------------------------------ |
+| `interactions_{train,valid,test}`        | ownership split per user (leave-one-out by default)    |
+| `interactions_{valid,test}_candidates`   | each held-out game + 99 sampled non-owned games (`label`) |
+| `reviews_{train,valid,test}`, `items`, `bundles` | supporting tables                              |
+| `meta.json`                              | the settings that built the cache + dataset statistics |
+
+Read it with:
+
+```python
+from assignment_2.modules.config import get_config
+from assignment_2.modules.data import load_prepped, read_meta
+
+cfg = get_config()
+tables = load_prepped(cfg)       # refuses a cache built with different settings
+```
+
+If `config.toml` changes (seed, `[sample]`, `[split]`, `[evaluation]`), `load_prepped` raises
+"run `make prep`" rather than returning stale splits.
+
+### Development sample
+
+`[sample] user_frac = 0.1` keeps a fixed, hash-based 10% of users with their whole
+libraries, so `prep` takes seconds. Figures saved from a sample get the tag in their file name
+(`games_per_user.users_0.1.png`). **Set `user_frac = 1.0` for final results.**
+
+---
+
+## Evaluation protocol
+
+- **Split:** leave-one-out per user (`[split] holdout = "count"`, `n_holdout = 1`): one game for
+  validation, one for test. Users with fewer than 3 games stay in train. Held-out games never
+  seen in train are dropped (`drop_cold`).
+- **Candidates:** each held-out game is ranked against 99 games the user owns in no split,
+  drawn from train games only and sampled once in `prep`, so every model scores the same rows.
+- **Metrics:** Hit@10, NDCG@10, MRR per user, averaged; 95% bootstrap intervals over users, and
+  bootstrap intervals on the *difference* between a model and its baseline.
+- Tune on `valid`; score `test` once (`make final`).
 
 ---
 
@@ -147,37 +186,36 @@ Set `A2_PATHS__DATA_DIR` to keep data somewhere other than `data/`.
 
 ### Branches and PRs
 
-- Branch from `main` as `<name>/<topic>` (e.g. `kiernan/bias-model`) and merge by PR.
+- Branch from `main` as `<type>/<topic>` (e.g. `task/eda`, `chore/hot-fix`) and merge by PR.
 - Run `make lint test` before opening a PR.
 - If a PR changes `results/metrics.json`, include the `make diff` output in its description.
 
 ### Adding a model
 
-1. Write a function `fit_<name>(cfg)` in a file under `modules/models/`. Train on
-   `load_split(cfg, "train")`, then call `save_predictions(cfg, "<name>", predict)`, where
-   `predict` takes a table and returns one score per row. The first line of its docstring is
-   shown by `assignment-2 models`.
+1. Subclass `ScoringModel` (`modules/models/ranking/base.py`), or `SurpriseModel` for a
+   Surprise algorithm:
+   - `fit(self, data: TrainData) -> Self` receives every prepped table (train interactions,
+     items, bundles, reviews) plus `exclude`, the candidate pairs never to use as training
+     negatives.
+   - `predict(self, rows) -> np.ndarray` returns one score per row of a candidate table, in
+     order (higher = more likely).
+   - The first line of the class docstring is shown by `assignment-2 models`.
 2. Register it in `MODELS` in `modules/models/registry.py`.
-3. Run `uv run assignment-2 train --model <name>`, then `uv run assignment-2 eval`.
+3. Put hyperparameters in `config.toml` under `[models.<name>]`; they're passed to the
+   constructor by name, plus `seed` if the constructor accepts one.
+4. Run `uv run assignment-2 train --model <name>`.
 
-`modules/models/base.py` defines what a score means for each task. Every model is scored by
-`modules/core/evaluate.py` on the same rows, so results are comparable. Don't write separate
-evaluation code inside a model file.
-
-Hyperparameters go in `config.toml` under `[models.<name>]`, and `cfg.params("<name>")` reads
-them. `features.py` has adapters for `implicit` and `surprise`.
-
-`make eval` only scores validation, so tune against that. Run `make final` once models are
-frozen.
+Models never sample their own evaluation negatives or split the data: they read the prepped
+cache, so every model is compared on identical rows.
 
 ### Notebooks
 
 - **`workbook.ipynb` is shared.** Coordinate before editing it, and keep cells short:
   import, call, display.
 - `notebooks/scratch/<name>/` is yours. Experiment freely; move anything worth keeping
-  into `src/`.
-- Notebooks are paired with `.py` files via jupytext (`make sync`). Review the `.py` diff
-  in PRs. Clear outputs from scratch notebooks before committing.
+  into `src/`. Clear outputs from scratch notebooks before committing.
+- Start each notebook with `use_style()` from `core/plots.py`, and save figures with `save()`.
+- After editing `config.toml` while a kernel is running, call `get_config.cache_clear()`.
 
 ### Reproducibility
 
@@ -188,7 +226,8 @@ frozen.
 
 ## Submitting
 
-1. `make submit` builds `submit/workbook.html` and runs the checks.
+1. Set `[sample] user_frac = 1.0`, then `make submit` builds `submit/workbook.html` and runs
+   the checks.
 2. Upload the mp4 to Google Drive, set sharing to **Anyone with the link**, and paste the
    link as the only line of `submit/video_url.txt`.
 3. Run `make check` again, then upload `workbook.html` and `video_url.txt` to Gradescope.

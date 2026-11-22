@@ -1,13 +1,14 @@
 # The group's agreed settings. Personal overrides belong in .env or --config.
 dataset = "steam"       # a key in DATASETS (scripts/get_data)
-task = "ranking"
 seed = 258
 
 [sample]
 user_frac = 0.1         # dev runs on 10% of users; set 1.0 for final results
 
 [split]
-valid_frac = 0.1
+holdout = "count"       # count: leave-n-out per user | frac: valid_frac / test_frac of each user's rows
+n_holdout = 1           # leave-one-out, as in SASRec
+valid_frac = 0.1        # used only when holdout = "frac"
 test_frac = 0.1
 by_time = true          # reviews only; ownership data has no timestamps, so it splits randomly
 drop_cold = true        # remove held-out rows whose item never appears in train
@@ -15,7 +16,7 @@ min_per_user = 3
 
 [evaluation]
 n_negatives = 99        # sampled negatives per user in the fixed candidate tables
-negatives = "uniform"   # uniform | popularity
+negatives = "popularity"   # uniform | popularity
 
 [models.bias]
 reg_u = 15
