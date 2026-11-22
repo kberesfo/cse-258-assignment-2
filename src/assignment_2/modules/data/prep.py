@@ -87,8 +87,7 @@ def prep(cfg: Config) -> Path:
     out = prepped_dir(cfg)
     out.mkdir(parents=True, exist_ok=True)
 
-    data = load_steam(cfg.paths.data_dir / "steam",
-                      user_frac=cfg.sample.user_frac, seed=cfg.seed)
+    data = load_steam(cfg.paths.data_dir / "steam", user_frac=cfg.sample.user_frac, seed=cfg.seed)
     print(f"[prep] {data.summary()}")
 
     owned = data.interactions  # every owned (user, game), with playtime
@@ -102,8 +101,7 @@ def prep(cfg: Config) -> Path:
     # Kept only for users already in play.train, so that users the split dropped don't
     # come back with only unplayed games.
     extra = unplayed[unplayed.user_id.isin(play.train.user_id)]
-    play = replace(play, train=pd.concat(
-        [play.train, extra], ignore_index=True))
+    play = replace(play, train=pd.concat([play.train, extra], ignore_index=True))
 
     # Task B: hold out any owned game; the target is its playtime.
     own = split_by_user(owned, cfg.split.engagement, cfg.seed)
@@ -129,8 +127,7 @@ def prep(cfg: Config) -> Path:
         for offset, split in enumerate(("valid", "test"), start=1)
     }
     for split, c in candidates.items():
-        print(
-            f"[prep] {split} candidates: {len(c):,} rows, {c.user_id.nunique():,} users")
+        print(f"[prep] {split} candidates: {len(c):,} rows, {c.user_id.nunique():,} users")
 
     # Write meta.json last, after every table: a cache without it is incomplete.
     # Old tables go first: load_prepped() reads every *.parquet here, so a file from an
@@ -140,15 +137,13 @@ def prep(cfg: Config) -> Path:
         old.unlink()
     for name, s in tables.items():
         for split in SPLITS:
-            getattr(s, split).to_parquet(
-                out / f"{name}_{split}.parquet", index=False)
+            getattr(s, split).to_parquet(out / f"{name}_{split}.parquet", index=False)
     for split, c in candidates.items():
         c.to_parquet(out / f"play_{split}_candidates.parquet", index=False)
     data.reviews.to_parquet(out / "reviews.parquet", index=False)
     data.items.to_parquet(out / "items.parquet", index=False)
     data.bundles.to_parquet(out / "bundles.parquet", index=False)
-    data.interactions.to_parquet(
-        out / "owned.parquet", index=False)  # full table, for EDA
+    data.interactions.to_parquet(out / "owned.parquet", index=False)  # full table, for EDA
 
     meta = {
         "settings": _settings(cfg),
