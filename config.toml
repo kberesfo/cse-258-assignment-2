@@ -16,7 +16,7 @@ min_per_user = 3
 
 [evaluation]
 n_negatives = 99        # sampled negatives per user in the fixed candidate tables
-negatives = "uniform"   # uniform | popularity
+negatives = "popularity"   # uniform | popularity
 
 [models.bias]
 reg_u = 15
