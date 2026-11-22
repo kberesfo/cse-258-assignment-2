@@ -1,3 +1,4 @@
+from .evaluate import bootstrap_ci, compare, evaluate_ranking
 from .metrics import (
     calc_accuracy,
     calc_auc,
@@ -12,11 +13,14 @@ from .similarity import SimMetric, interaction_matrix, item_similarity, user_sim
 
 __all__ = [
     "SimMetric",
+    "bootstrap_ci",
     "calc_accuracy",
     "calc_auc",
     "calc_ber",
     "calc_mae",
     "calc_mse",
+    "compare",
+    "evaluate_ranking",
     "interaction_matrix",
     "item_similarity",
     "log_hist",
