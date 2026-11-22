@@ -35,5 +35,3 @@ class Split(_Section):
 class SplitConfig(_Section):
     play: Split = Split(min_minutes=120)
     engagement: Split = Split(n_holdout=3, min_per_user=7)
-    reviews: Split = Split()
-

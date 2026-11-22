@@ -1,7 +1,8 @@
 """Command-line entry point: one subcommand per pipeline stage.
 
     uv run assignment-2 prep
-    uv run assignment-2 train --model bias --model svd   # default: every registered model
+    uv run assignment-2 train                            # task A (play), every registered model
+    uv run assignment-2 train --task engagement --model svd
     uv run assignment-2 models                           # list registered models
     uv run assignment-2 eval                             # not implemented yet
     uv run assignment-2 figures                          # not implemented yet
@@ -20,7 +21,10 @@ from collections.abc import Callable
 from pydantic import ValidationError
 
 from assignment_2.modules.config import Config, load
-from assignment_2.modules.data.tasks import train_tables
+
+# Written out rather than imported from modules.data.tasks (which imports pandas), so the
+# parser can be built without the heavy imports. Keep in sync with tasks.TASKS.
+TASKS = ("play", "engagement")
 
 
 def _common() -> argparse.ArgumentParser:
@@ -50,18 +54,18 @@ def cmd_prep(cfg: Config, args: argparse.Namespace) -> None:
 
     out = data.prep(cfg)
     stats = data.read_meta(cfg)["stats"]
-    inter = stats["interactions"]
+    own, play = stats["own"], stats["play"]
     print(
-        f"[prep] {cfg.sample.tag}: {inter['all']['users']:,} users, "
-        f"{inter['all']['items']:,} games, sparsity {inter['all']['sparsity']:.4f}, "
-        f"{inter['cold_dropped']:,} cold held-out rows dropped -> {out}"
+        f"[prep] {cfg.sample.tag}: {own['all']['users']:,} users, "
+        f"{own['all']['items']:,} games, sparsity {own['all']['sparsity']:.4f} | "
+        f"play: {play['test']['users']:,} test users, {play['cold_dropped']:,} cold dropped | "
+        f"own: {own['test']['users']:,} test users, {own['cold_dropped']:,} cold dropped "
+        f"-> {out}"
     )
 
 
 def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
-    import pandas as pd
-
-    from assignment_2.modules.data import load_prepped
+    from assignment_2.modules.data import load_prepped, train_tables
     from assignment_2.modules.data.prep import prepped_dir
     from assignment_2.modules.models import MODELS, build
     from assignment_2.modules.models.ranking.base import TrainData
@@ -77,12 +81,15 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
 
     t = load_prepped(cfg)  # refuses a cache built with different settings
 
+    # The task's training tables, with its held-out pairs removed (see data/tasks.py).
     tables = train_tables(t, args.task)
+    n_dropped = tables.pop("n_reviews_dropped")
     print(
-        f"[train] {args.task}: dropped {tables.pop('n_reviews_dropped'):,} reviews of held-out games")
+        f"[train] {args.task}: dropped {n_dropped:,} reviews of held-out games")
     data = TrainData(**tables)
 
-    out = prepped_dir(cfg) / "models"
+    # One folder per task: each task trains on its own split, so the models differ.
+    out = prepped_dir(cfg) / "models" / args.task
     out.mkdir(parents=True, exist_ok=True)
     for name in names:
         start = time.perf_counter()
@@ -91,7 +98,7 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
         with path.open("wb") as f:
             pickle.dump(model, f)
         print(
-            f"[train] {name}: fit in {time.perf_counter() - start:.1f}s -> {path}")
+            f"[train] {args.task}/{name}: fit in {time.perf_counter() - start:.1f}s -> {path}")
 
 
 def cmd_eval(cfg: Config, args: argparse.Namespace) -> None:
@@ -131,8 +138,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("prep", cmd_prep,
         "sample, split, and build candidate tables -> artifacts/steam/<tag>/")
-    p = add("train", cmd_train,
-            "fit models on the prepped split -> artifacts/steam/<tag>/models/")
+    p = add(
+        "train", cmd_train, "fit models on a task's split -> artifacts/steam/<tag>/models/<task>/"
+    )
+    p.add_argument(
+        "--task",
+        default="play",
+        choices=TASKS,
+        help="play (task A, ranking) or engagement (task B, log playtime); default: play",
+    )
     p.add_argument("--model", action="append",
                    help="model to train (repeatable; default: all)")
     p = add("eval", cmd_eval,
