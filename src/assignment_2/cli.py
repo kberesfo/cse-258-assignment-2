@@ -75,15 +75,31 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
             "no models registered yet: add one to MODELS in modules/models/registry.py")
 
     t = load_prepped(cfg)  # refuses a cache built with different settings
-    # Every valid/test candidate pair: never used as a training negative.
+
+    # Every valid/test candidate pair (held-out games + their sampled negatives).
+    # Models must never train on these pairs:
+    #   - as training negatives: TrainData.exclude keeps them out of negative sampling;
+    #   - through reviews: the review split is made independently of the ownership split
+    #     (latest dated reviews vs a random held-out game), so a user's review of their
+    #     held-out game can land in reviews_train. Seeing "user reviewed X" all but reveals
+    #     that X is owned, so those reviews are dropped here, once, for every model.
     candidates = pd.concat(
-        [t["interactions_valid_candidates"], t["interactions_test_candidates"]])
+        [t["interactions_valid_candidates"], t["interactions_test_candidates"]]
+    )
+    exclude = candidates[["user_id", "item_id"]]
+    reviews = t["reviews_train"].merge(
+        exclude.drop_duplicates(), how="left", on=["user_id", "item_id"], indicator=True
+    )
+    reviews = reviews[reviews["_merge"] == "left_only"].drop(columns="_merge")
+    n_dropped = len(t["reviews_train"]) - len(reviews)
+    print(f"[train] dropped {n_dropped:,} training reviews of held-out games")
+
     data = TrainData(
         interactions=t["interactions_train"],
         items=t["items"],
         bundles=t["bundles"],
-        reviews=t["reviews_train"],
-        exclude=candidates[["user_id", "item_id"]],
+        reviews=reviews,
+        exclude=exclude,
     )
 
     out = prepped_dir(cfg) / "models"
