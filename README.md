@@ -2,10 +2,16 @@
 
 Group project for CSE 258 (Recommender Systems & Web Mining), Fall 2026.
 
-**Task:** top-k game recommendation on Steam. Given a user's library, rank the games they own
-but we held out above games they don't own. Implicit feedback (ownership + playtime) from the
-Steam v1 Australian users data; evaluated with leave-one-out against 99 sampled negatives per
-user (Hit@10, NDCG@10, MRR, with bootstrap confidence intervals).
+**Tasks:** game recommendation on Steam, from implicit feedback (ownership + playtime) in the
+Steam v1 Australian users data.
+
+- **A (main, ranking):** given a user's library, rank 100 candidates so the held-out game they
+  **played for at least 2 hours** comes first. The other 99 are popularity-weighted games they
+  don't own. Hit@10, NDCG@10, MRR, with bootstrap confidence intervals.
+- **B (engagement):** given that a user owns a game, predict how long they play it, as
+  log(1 + minutes). MSE, MAE, and within-user Spearman.
+
+Why these tasks, the protocol, and the baselines to beat: [`docs/plan.md`](docs/plan.md).
 
 Deliverables (see [`docs/`](docs/) for the full spec):
 
@@ -55,7 +61,7 @@ downloaded data changes.
 | `make setup`     | `data` + `prep`: everything a fresh environment needs               |
 | `make data`      | Download the dataset named in `config.toml` into `data/`            |
 | `make prep`      | Sample users, split, build candidate tables → `artifacts/steam/<tag>/` |
-| `make train`     | Fit all registered models → `artifacts/steam/<tag>/models/`         |
+| `make train`     | Fit all registered models on task A → `artifacts/steam/<tag>/models/play/` |
 | `make eval`      | Score models on validation → `results/metrics.json` *(not implemented yet)* |
 | `make figures`   | Plots for the slides *(not implemented yet; figures come from notebooks)* |
 | `make results`   | `prep` + `train` + `eval` + `figures`                               |
@@ -74,7 +80,8 @@ The CLI can also be called directly:
 ```bash
 uv run assignment-2 --help
 uv run assignment-2 models                     # list registered models
-uv run assignment-2 train --model svd          # train one model (default: all)
+uv run assignment-2 train --model svd          # train one model (default: all) on task A
+uv run assignment-2 train --task engagement    # task B; models go to models/engagement/
 uv run assignment-2 prep --seed 1              # any setting can be overridden per run
 ```
 
@@ -93,6 +100,8 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 ├── notebooks/
 │   ├── workbook.ipynb        # the submission: one section per rubric item
 │   ├── eda.ipynb             # exploratory analysis feeding the EDA section
+│   ├── explore_play.ipynb    # task A: thresholds and baselines
+│   ├── explore_own.ipynb     # task B: holdout checks and baselines
 │   └── scratch/<name>/       # personal exploration; never imported from
 ├── scripts/
 │   ├── get_data/             # dataset registry + downloader
@@ -105,9 +114,10 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 │       │   ├── steam.py      # Steam loader: raw files -> tidy tables
 │       │   ├── split.py      # per-user split (leave-n-out or fraction)
 │       │   ├── candidates.py # fixed ranking candidates (positives + sampled negatives)
-│       │   └── prep.py       # prep stage, meta.json, load_prepped
+│       │   ├── prep.py       # prep stage (both tasks), meta.json, load_prepped
+│       │   └── tasks.py      # train_tables(): a task's training tables, leaks removed
 │       ├── core/
-│       │   ├── metrics.py    # per-user ranking metrics (Hit, NDCG, MRR)
+│       │   ├── metrics.py    # per-user ranking metrics (Hit, NDCG, MRR), MSE, MAE
 │       │   ├── evaluate.py   # bootstrap CIs and model comparison (in progress)
 │       │   └── plots.py      # shared figure style, save(), log_hist()
 │       └── models/
@@ -141,24 +151,27 @@ uv run python scripts/get_data --list    # status of every dataset entry
 `make prep` builds everything models and notebooks use, in `artifacts/steam/<tag>/`
 (`<tag>` is `users_0.1` for the 10% dev sample, `full` for all users):
 
-| File                                     | Contents                                               |
-| ---------------------------------------- | ------------------------------------------------------ |
-| `interactions_{train,valid,test}`        | ownership split per user (leave-one-out by default)    |
-| `interactions_{valid,test}_candidates`   | each held-out game + 99 sampled non-owned games (`label`) |
-| `reviews_{train,valid,test}`, `items`, `bundles` | supporting tables                              |
-| `meta.json`                              | the settings that built the cache + dataset statistics |
+| Table                                  | Contents                                                     |
+| -------------------------------------- | ------------------------------------------------------------ |
+| `play_{train,valid,test}`              | task A: one played (≥ 120 min) game per user held out for valid and test; train also keeps owned games under 120 min |
+| `play_{valid,test}_candidates`         | each held-out game + 99 sampled non-owned games (`label`)    |
+| `own_{train,valid,test}`               | task B: 3 owned games per user held out for valid and test   |
+| `owned`                                | every owned (user, game) with playtime, unsplit (for EDA)    |
+| `reviews`, `items`, `bundles`          | supporting tables (reviews unsplit; filtered per task)       |
+| `meta.json`                            | the settings that built the cache + dataset statistics       |
 
 Read it with:
 
 ```python
 from assignment_2.modules.config import get_config
-from assignment_2.modules.data import load_prepped, read_meta
+from assignment_2.modules.data import load_prepped, read_meta, train_tables
 
 cfg = get_config()
-tables = load_prepped(cfg)       # refuses a cache built with different settings
+t = load_prepped(cfg)              # refuses a cache built with different settings
+tables = train_tables(t, "play")   # or "engagement": training tables, held-out pairs removed
 ```
 
-If `config.toml` changes (seed, `[sample]`, `[split]`, `[evaluation]`), `load_prepped` raises
+If `config.toml` changes (seed, `[sample]`, `[split.*]`, `[evaluation]`), `load_prepped` raises
 "run `make prep`" rather than returning stale splits.
 
 ### Development sample
@@ -171,14 +184,30 @@ libraries, so `prep` takes seconds. Figures saved from a sample get the tag in t
 
 ## Evaluation protocol
 
-- **Split:** leave-one-out per user (`[split] holdout = "count"`, `n_holdout = 1`): one game for
-  validation, one for test. Users with fewer than 3 games stay in train. Held-out games never
-  seen in train are dropped (`drop_cold`).
+Full details and the reasoning behind them: [`docs/plan.md`](docs/plan.md) §2.
+
+**Task A (`[split.play]`)**
+- **Split:** leave-one-out per user among games played ≥ 120 minutes (`min_minutes`): one for
+  validation, one for test. Users need at least 3 played games. Owned games under 120 minutes
+  stay in train and are never held out.
 - **Candidates:** each held-out game is ranked against 99 games the user owns in no split,
-  drawn from train games only and sampled once in `prep`, so every model scores the same rows.
+  drawn from train games in proportion to popularity (`[evaluation]`) and sampled once in
+  `prep`, so every model scores the same rows.
 - **Metrics:** Hit@10, NDCG@10, MRR per user, averaged; 95% bootstrap intervals over users, and
   bootstrap intervals on the *difference* between a model and its baseline.
-- Tune on `valid`; score `test` once (`make final`).
+
+**Task B (`[split.engagement]`)**
+- **Split:** 3 owned games per user held out for validation and 3 for test (users need at least
+  7 owned games), including never-played games (target 0).
+- **Metrics:** MSE and MAE on log(1 + minutes); within-user Spearman over each user's held-out
+  games, averaged over users where it's defined (~94%).
+
+**Both**
+- Held-out games never seen in train are dropped (`drop_cold`).
+- A review of a held-out game reveals the answer, so `train_tables` drops reviews of each
+  task's held-out pairs, and lists the pairs in `exclude` so no model samples them as
+  training negatives.
+- Each model trains on its own task's split; tune on `valid`, score `test` once (`make final`).
 
 ---
 
@@ -194,16 +223,17 @@ libraries, so `prep` takes seconds. Figures saved from a sample get the tag in t
 
 1. Subclass `ScoringModel` (`modules/models/ranking/base.py`), or `SurpriseModel` for a
    Surprise algorithm:
-   - `fit(self, data: TrainData) -> Self` receives every prepped table (train interactions,
-     items, bundles, reviews) plus `exclude`, the candidate pairs never to use as training
-     negatives.
-   - `predict(self, rows) -> np.ndarray` returns one score per row of a candidate table, in
-     order (higher = more likely).
+   - `fit(self, data: TrainData) -> Self` receives one task's training tables from
+     `train_tables` (train interactions, items, bundles, reviews with held-out pairs removed)
+     plus `exclude`, the task's held-out pairs, never to use as training negatives.
+   - `predict(self, rows) -> np.ndarray` returns one score per row, in order. For task A only
+     the order matters (higher = more likely to be played); for task B it's the predicted
+     log(1 + minutes).
    - The first line of the class docstring is shown by `assignment-2 models`.
 2. Register it in `MODELS` in `modules/models/registry.py`.
 3. Put hyperparameters in `config.toml` under `[models.<name>]`; they're passed to the
    constructor by name, plus `seed` if the constructor accepts one.
-4. Run `uv run assignment-2 train --model <name>`.
+4. Run `uv run assignment-2 train --model <name>` (add `--task engagement` for task B).
 
 Models never sample their own evaluation negatives or split the data: they read the prepped
 cache, so every model is compared on identical rows.
@@ -215,7 +245,10 @@ cache, so every model is compared on identical rows.
 - `notebooks/scratch/<name>/` is yours. Experiment freely; move anything worth keeping
   into `src/`. Clear outputs from scratch notebooks before committing.
 - Start each notebook with `use_style()` from `core/plots.py`, and save figures with `save()`.
-- After editing `config.toml` while a kernel is running, call `get_config.cache_clear()`.
+- `jupytext.toml` pairs notebooks with `py:percent` scripts. To build or rebuild a notebook
+  from a `.py`: `uv run jupytext --to ipynb notebooks/<name>.py`.
+- After editing `config.toml` while a kernel is running, call `get_config.cache_clear()`. After
+  pulling changes to `src/` (especially `config/`), restart the kernel.
 
 ### Reproducibility
 
