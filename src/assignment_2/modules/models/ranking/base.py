@@ -1,9 +1,10 @@
-"""Shared interface for every ranking model, plus the Surprise plumbing.
+"""Shared model interface (fit / predict), plus the Surprise plumbing.
 
 Every model: `fit(data) -> self`, then `predict(rows) -> scores` aligned to `rows`
-(one float per row; higher = more likely to be owned). `fit` receives everything prep
-produced (TrainData) and takes what it needs; `predict` always receives candidate rows
-keyed by user_id / item_id. Evaluation only uses this interface.
+(one float per row). What a score means depends on the task: for play, higher = more
+likely to be played (only the order matters); for engagement, the predicted
+log1p(playtime). `fit` receives a task's TrainData and takes what it needs; `predict`
+receives rows keyed by user_id / item_id. Evaluation only uses this interface.
 """
 
 from abc import ABC, abstractmethod
@@ -18,12 +19,15 @@ from surprise import AlgoBase, Dataset, Reader, Trainset
 
 @dataclass(frozen=True)
 class TrainData:
-    interactions: pd.DataFrame  # interactions_train
+    """A task's training tables, from data.train_tables(t, task)."""
+
+    interactions: pd.DataFrame  # play_train or own_train
     items: pd.DataFrame
     bundles: pd.DataFrame
-    reviews: pd.DataFrame  # reviews_train
-    # (user_id, item_id) pairs never to use as training negatives: every valid/test
-    # candidate row, i.e. held-out owned games and the evaluation's negatives.
+    reviews: pd.DataFrame  # all reviews minus the task's held-out pairs
+    # (user_id, item_id) pairs never to use as training negatives: the task's held-out
+    # pairs (play: valid/test candidates, incl. their sampled negatives;
+    # engagement: own valid/test).
     exclude: pd.DataFrame | None = None
 
 
@@ -53,13 +57,15 @@ def sample_negatives(
     if exclude is not None and len(exclude):
         eu = pd.Index(users).get_indexer(exclude["user_id"])
         ei = pd.Index(items).get_indexer(exclude["item_id"])
-        ok = (eu >= 0) & (ei >= 0)  # pairs outside train can never be sampled anyway
+        # pairs outside train can never be sampled anyway
+        ok = (eu >= 0) & (ei >= 0)
         forbidden = np.concatenate([forbidden, eu[ok].astype(np.int64) * n_items + ei[ok]])
     forbidden = np.unique(forbidden)
 
     need = np.bincount(u_codes, minlength=len(users)) * ratio
     room = n_items - np.bincount(forbidden // n_items, minlength=len(users))
-    need = np.minimum(need, room)  # a user who owns nearly everything gets fewer
+    # a user who owns nearly everything gets fewer
+    need = np.minimum(need, room)
 
     chosen = np.empty(0, dtype=np.int64)
     for _ in range(20):  # rejection sampling; each round fills almost all the gap

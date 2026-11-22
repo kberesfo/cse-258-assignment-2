@@ -1,7 +1,8 @@
 """Command-line entry point: one subcommand per pipeline stage.
 
     uv run assignment-2 prep
-    uv run assignment-2 train --model bias --model svd   # default: every registered model
+    uv run assignment-2 train                            # task A (play), every registered model
+    uv run assignment-2 train --task engagement --model svd
     uv run assignment-2 models                           # list registered models
     uv run assignment-2 eval                             # not implemented yet
     uv run assignment-2 figures                          # not implemented yet
@@ -21,21 +22,21 @@ from pydantic import ValidationError
 
 from assignment_2.modules.config import Config, load
 
+# Written out rather than imported from modules.data.tasks (which imports pandas), so the
+# parser can be built without the heavy imports. Keep in sync with tasks.TASKS.
+TASKS = ("play", "engagement")
+
 
 def _common() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument(
         "--config", help="extra TOML overrides (default: $A2_CONFIG); config.toml always applies"
     )
-    g = p.add_argument_group(
-        "paths (default: from config; env A2_PATHS__DATA_DIR etc.)")
+    g = p.add_argument_group("paths (default: from config; env A2_PATHS__DATA_DIR etc.)")
     g.add_argument("--data-dir", help="raw datasets (from scripts/get_data)")
-    g.add_argument(
-        "--art-dir", help="regenerable outputs: splits, trained models")
-    g.add_argument("--results-dir",
-                   help="committed outputs: metrics.json, figures/")
-    p.add_argument("--seed", type=int,
-                   help="random seed (default: from config)")
+    g.add_argument("--art-dir", help="regenerable outputs: splits, trained models")
+    g.add_argument("--results-dir", help="committed outputs: metrics.json, figures/")
+    p.add_argument("--seed", type=int, help="random seed (default: from config)")
     return p
 
 
@@ -49,18 +50,18 @@ def cmd_prep(cfg: Config, args: argparse.Namespace) -> None:
 
     out = data.prep(cfg)
     stats = data.read_meta(cfg)["stats"]
-    inter = stats["interactions"]
+    own, play = stats["own"], stats["play"]
     print(
-        f"[prep] {cfg.sample.tag}: {inter['all']['users']:,} users, "
-        f"{inter['all']['items']:,} games, sparsity {inter['all']['sparsity']:.4f}, "
-        f"{inter['cold_dropped']:,} cold held-out rows dropped -> {out}"
+        f"[prep] {cfg.sample.tag}: {own['all']['users']:,} users, "
+        f"{own['all']['items']:,} games, sparsity {own['all']['sparsity']:.4f} | "
+        f"play: {play['test']['users']:,} test users, {play['cold_dropped']:,} cold dropped | "
+        f"own: {own['test']['users']:,} test users, {own['cold_dropped']:,} cold dropped "
+        f"-> {out}"
     )
 
 
 def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
-    import pandas as pd
-
-    from assignment_2.modules.data import load_prepped
+    from assignment_2.modules.data import load_prepped, train_tables
     from assignment_2.modules.data.prep import prepped_dir
     from assignment_2.modules.models import MODELS, build
     from assignment_2.modules.models.ranking.base import TrainData
@@ -68,41 +69,20 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
     names = args.model or list(MODELS)
     unknown = sorted(set(names) - set(MODELS))
     if unknown:
-        sys.exit(
-            f"unknown model(s): {', '.join(unknown)} (see `assignment-2 models`)")
+        sys.exit(f"unknown model(s): {', '.join(unknown)} (see `assignment-2 models`)")
     if not names:
-        sys.exit(
-            "no models registered yet: add one to MODELS in modules/models/registry.py")
+        sys.exit("no models registered yet: add one to MODELS in modules/models/registry.py")
 
     t = load_prepped(cfg)  # refuses a cache built with different settings
 
-    # Every valid/test candidate pair (held-out games + their sampled negatives).
-    # Models must never train on these pairs:
-    #   - as training negatives: TrainData.exclude keeps them out of negative sampling;
-    #   - through reviews: the review split is made independently of the ownership split
-    #     (latest dated reviews vs a random held-out game), so a user's review of their
-    #     held-out game can land in reviews_train. Seeing "user reviewed X" all but reveals
-    #     that X is owned, so those reviews are dropped here, once, for every model.
-    candidates = pd.concat(
-        [t["interactions_valid_candidates"], t["interactions_test_candidates"]]
-    )
-    exclude = candidates[["user_id", "item_id"]]
-    reviews = t["reviews_train"].merge(
-        exclude.drop_duplicates(), how="left", on=["user_id", "item_id"], indicator=True
-    )
-    reviews = reviews[reviews["_merge"] == "left_only"].drop(columns="_merge")
-    n_dropped = len(t["reviews_train"]) - len(reviews)
-    print(f"[train] dropped {n_dropped:,} training reviews of held-out games")
+    # The task's training tables, with its held-out pairs removed (see data/tasks.py).
+    tables = train_tables(t, args.task)
+    n_dropped = tables.pop("n_reviews_dropped")
+    print(f"[train] {args.task}: dropped {n_dropped:,} reviews of held-out games")
+    data = TrainData(**tables)
 
-    data = TrainData(
-        interactions=t["interactions_train"],
-        items=t["items"],
-        bundles=t["bundles"],
-        reviews=reviews,
-        exclude=exclude,
-    )
-
-    out = prepped_dir(cfg) / "models"
+    # One folder per task: each task trains on its own split, so the models differ.
+    out = prepped_dir(cfg) / "models" / args.task
     out.mkdir(parents=True, exist_ok=True)
     for name in names:
         start = time.perf_counter()
@@ -110,18 +90,15 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
         path = out / f"{name}.pkl"
         with path.open("wb") as f:
             pickle.dump(model, f)
-        print(
-            f"[train] {name}: fit in {time.perf_counter() - start:.1f}s -> {path}")
+        print(f"[train] {args.task}/{name}: fit in {time.perf_counter() - start:.1f}s -> {path}")
 
 
 def cmd_eval(cfg: Config, args: argparse.Namespace) -> None:
-    raise NotImplementedError(
-        "evaluation is being settled in notebooks; see core/evaluate.py")
+    raise NotImplementedError("evaluation is being settled in notebooks; see core/evaluate.py")
 
 
 def cmd_figures(cfg: Config, args: argparse.Namespace) -> None:
-    raise NotImplementedError(
-        "figures are made in the notebooks for now (core/plots.py)")
+    raise NotImplementedError("figures are made in the notebooks for now (core/plots.py)")
 
 
 def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
@@ -139,24 +116,26 @@ def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     common = _common()
-    parser = argparse.ArgumentParser(
-        prog="assignment-2", description=__doc__.split("\n\n")[0])
-    sub = parser.add_subparsers(
-        dest="command", required=True, metavar="command")
+    parser = argparse.ArgumentParser(prog="assignment-2", description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True, metavar="command")
 
     def add(name: str, fn: Callable, help: str) -> argparse.ArgumentParser:
         p = sub.add_parser(name, parents=[common], help=help, description=help)
         p.set_defaults(func=fn)
         return p
 
-    add("prep", cmd_prep,
-        "sample, split, and build candidate tables -> artifacts/steam/<tag>/")
-    p = add("train", cmd_train,
-            "fit models on the prepped split -> artifacts/steam/<tag>/models/")
-    p.add_argument("--model", action="append",
-                   help="model to train (repeatable; default: all)")
-    p = add("eval", cmd_eval,
-            "score trained models on the fixed split (not implemented yet)")
+    add("prep", cmd_prep, "sample, split, and build candidate tables -> artifacts/steam/<tag>/")
+    p = add(
+        "train", cmd_train, "fit models on a task's split -> artifacts/steam/<tag>/models/<task>/"
+    )
+    p.add_argument(
+        "--task",
+        default="play",
+        choices=TASKS,
+        help="play (task A, ranking) or engagement (task B, log playtime); default: play",
+    )
+    p.add_argument("--model", action="append", help="model to train (repeatable; default: all)")
+    p = add("eval", cmd_eval, "score trained models on the fixed split (not implemented yet)")
     p.add_argument("--split", default="valid", choices=["valid", "test"])
     add("figures", cmd_figures, "plots for the slides (not implemented yet)")
     add("models", cmd_models, "list registered models")

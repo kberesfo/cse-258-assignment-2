@@ -44,8 +44,7 @@ class File:
 @dataclass(frozen=True)
 class Dataset:
     note: str
-    files: tuple[File, ...] = field(
-        default_factory=tuple)  # empty = manual download
+    files: tuple[File, ...] = field(default_factory=tuple)  # empty = manual download
     citation: str = ""
     # quick parse; returns a one-line summary
     check: Callable[[Path], str] | None = None
@@ -81,8 +80,8 @@ DATASETS: dict[str, Dataset] = {
         note="Steam v1: Australian reviews + user-item play data, bundles, item metadata (~80 MB)",
         files=(
             File(f"{STEAM}/australian_user_reviews.json.gz"),  # 6.7 MB
-            File(f"{STEAM}/australian_users_items.json.gz"),   # 71 MB
-            File(f"{STEAM}/bundle_data.json.gz"),              # 92 KB
+            File(f"{STEAM}/australian_users_items.json.gz"),  # 71 MB
+            File(f"{STEAM}/bundle_data.json.gz"),  # 92 KB
             # 2.7 MB, names/genres/prices
             File(f"{STEAM_V2}/steam_games.json.gz"),
         ),
@@ -153,8 +152,7 @@ def fetch(name: str, force: bool = False) -> None:
         except (OSError, zipfile.BadZipFile, tarfile.TarError) as e:
             # clear partial state, so a failed download never looks "present"
             shutil.rmtree(dest, ignore_errors=True)
-            print(
-                f"[warn]   {name}: download failed ({e}); re-run this script later")
+            print(f"[warn]   {name}: download failed ({e}); re-run this script later")
             return
 
     if ds.check is not None:
@@ -173,8 +171,7 @@ def main(argv: list[str]) -> None:
         print(f"config   = {CONFIG.dataset or '(none yet)'}")
         for name in names or DATASETS:
             ds = DATASETS[name]
-            status = "present" if present(name) else (
-                "missing" if ds.files else "manual")
+            status = "present" if present(name) else ("missing" if ds.files else "manual")
             print(f"  {name:18s} {status:8s} {ds.note}")
             if ds.citation:
                 print(f"  {'':18s} {'':8s} cite: {ds.citation}")
@@ -188,8 +185,7 @@ def main(argv: list[str]) -> None:
 
     unknown = [n for n in names if n not in DATASETS]
     if unknown:
-        sys.exit(
-            f"Unknown dataset(s): {', '.join(unknown)}. Options: {', '.join(DATASETS)}")
+        sys.exit(f"Unknown dataset(s): {', '.join(unknown)}. Options: {', '.join(DATASETS)}")
 
     for name in names:
         fetch(name, force="--force" in flags)

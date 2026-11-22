@@ -6,7 +6,7 @@ git branch -vv | grep ': gone]' | awk '{print $1}' | xargs -r git branch -D
 ```
 
 ```bash
- uv run jupyter nbconvert --to html --execute notebooks/phase3b/eval.ipynb     --output-dir results/
+uv run jupyter nbconvert --to html --execute notebooks/eda.ipynb --output-dir artifacts/reports/
 ```
 
 ```bash

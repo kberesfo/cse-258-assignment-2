@@ -4,8 +4,6 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .metrics import ranking_per_user
-
 
 @dataclass(frozen=True)
 class Metric:
@@ -42,6 +40,7 @@ def evaluate_scores(
         summary:  {"ndcg@10": Metric(value, ci_low, ci_high), ...} for reporting
         per_user: {"ndcg@10": array of one value per user, ...} kept for compare()
     """
+    assert len(cand) == len(scores)
     # 1. Sanity check: len(scores) must equal len(cand). If not, the model scored the
     #    wrong rows. Raise instead of evaluating something meaningless.
     #    (Also worth checking: no NaN in scores. A NaN would silently sort to one end.)
@@ -91,6 +90,3 @@ def compare(per_user_a: np.ndarray, per_user_b: np.ndarray, n_boot: int, seed: i
 
     # 6. Return Metric(value=difference, ci_low=low, ci_high=high).
     raise NotImplementedError()
-
-
-

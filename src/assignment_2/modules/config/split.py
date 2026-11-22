@@ -19,12 +19,18 @@ class Split(_Section):
     drop_cold: bool = True
     # Users with fewer rows stay entirely in train. >= 3 so held-out users keep a train row.
     min_per_user: int = Field(3, ge=3)
+    # [split.play] only: prep holds out only rows with playtime_forever >= this
+    min_minutes: int = Field(0, ge=0)
 
     @model_validator(mode="after")
     def _leaves_training_data(self) -> "Split":
         if self.holdout == "count" and self.min_per_user < 2 * self.n_holdout + 1:
-            raise ValueError(
-                "min_per_user must be >= 2 * n_holdout + 1 so train keeps a row")
+            raise ValueError("min_per_user must be >= 2 * n_holdout + 1 so train keeps a row")
         if self.valid_frac + self.test_frac >= 1:
             raise ValueError("valid_frac + test_frac must be < 1")
         return self
+
+
+class SplitConfig(_Section):
+    play: Split = Split(min_minutes=120)
+    engagement: Split = Split(n_holdout=3, min_per_user=7)
