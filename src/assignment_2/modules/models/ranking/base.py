@@ -1,9 +1,9 @@
-"""Shared interface for every ranking model, plus the Surprise plumbing.
-
+"""
 Every model: `fit(data) -> self`, then `predict(rows) -> scores` aligned to `rows`
-(one float per row; higher = more likely to be owned). `fit` receives everything prep
-produced (TrainData) and takes what it needs; `predict` always receives candidate rows
-keyed by user_id / item_id. Evaluation only uses this interface.
+(one float per row). What a score means depends on the task: for play, higher = more
+likely to be played (only the order matters); for engagement, the predicted
+log1p(playtime). `fit` receives a task's TrainData and takes what it needs; `predict`
+receives rows keyed by user_id / item_id. Evaluation only uses this interface.
 """
 
 from abc import ABC, abstractmethod
@@ -18,12 +18,15 @@ from surprise import AlgoBase, Dataset, Reader, Trainset
 
 @dataclass(frozen=True)
 class TrainData:
-    interactions: pd.DataFrame  # interactions_train
+    """A task's training tables, from data.train_tables(t, task)."""
+
+    interactions: pd.DataFrame  # play_train or own_train
     items: pd.DataFrame
     bundles: pd.DataFrame
-    reviews: pd.DataFrame  # reviews_train
-    # (user_id, item_id) pairs never to use as training negatives: every valid/test
-    # candidate row, i.e. held-out owned games and the evaluation's negatives.
+    reviews: pd.DataFrame  # all reviews minus the task's held-out pairs
+    # (user_id, item_id) pairs never to use as training negatives: the task's held-out
+    # pairs (play: valid/test candidates, incl. their sampled negatives;
+    # engagement: own valid/test).
     exclude: pd.DataFrame | None = None
 
 
@@ -44,8 +47,10 @@ def sample_negatives(
     """`ratio` negatives per positive, per user: train games the user doesn't own and
     that aren't in `exclude`. Uniform over train games. Returns user_id, item_id."""
     rng = np.random.default_rng(seed)
-    users, u_codes = np.unique(positives["user_id"].to_numpy(), return_inverse=True)
-    items, i_codes = np.unique(positives["item_id"].to_numpy(), return_inverse=True)
+    users, u_codes = np.unique(
+        positives["user_id"].to_numpy(), return_inverse=True)
+    items, i_codes = np.unique(
+        positives["item_id"].to_numpy(), return_inverse=True)
     n_items = len(items)
 
     # Forbidden pairs as single integers: owned in train, plus excluded pairs.
@@ -53,17 +58,21 @@ def sample_negatives(
     if exclude is not None and len(exclude):
         eu = pd.Index(users).get_indexer(exclude["user_id"])
         ei = pd.Index(items).get_indexer(exclude["item_id"])
-        ok = (eu >= 0) & (ei >= 0)  # pairs outside train can never be sampled anyway
-        forbidden = np.concatenate([forbidden, eu[ok].astype(np.int64) * n_items + ei[ok]])
+        # pairs outside train can never be sampled anyway
+        ok = (eu >= 0) & (ei >= 0)
+        forbidden = np.concatenate(
+            [forbidden, eu[ok].astype(np.int64) * n_items + ei[ok]])
     forbidden = np.unique(forbidden)
 
     need = np.bincount(u_codes, minlength=len(users)) * ratio
     room = n_items - np.bincount(forbidden // n_items, minlength=len(users))
-    need = np.minimum(need, room)  # a user who owns nearly everything gets fewer
+    # a user who owns nearly everything gets fewer
+    need = np.minimum(need, room)
 
     chosen = np.empty(0, dtype=np.int64)
     for _ in range(20):  # rejection sampling; each round fills almost all the gap
-        have = np.bincount(chosen // n_items, minlength=len(users)) if len(chosen) else 0
+        have = np.bincount(chosen // n_items,
+                           minlength=len(users)) if len(chosen) else 0
         gap = need - have
         if not gap.any():
             break
@@ -98,7 +107,8 @@ class SurpriseModel(ScoringModel):
         seed: int = 0,
     ) -> None:
         if neg_ratio < 1:
-            raise ValueError("neg_ratio must be >= 1 (without negatives every target is > 0)")
+            raise ValueError(
+                "neg_ratio must be >= 1 (without negatives every target is > 0)")
         self.target, self.neg_ratio, self.seed = target, neg_ratio, seed
         self.algo: AlgoBase | None = None
         self.trainset: Trainset | None = None
@@ -107,7 +117,8 @@ class SurpriseModel(ScoringModel):
     def _make_algo(self) -> AlgoBase: ...
 
     @abstractmethod
-    def _score(self, u: NDArray[np.int64], i: NDArray[np.int64]) -> NDArray[np.float64]: ...
+    def _score(self, u: NDArray[np.int64],
+               i: NDArray[np.int64]) -> NDArray[np.float64]: ...
 
     def _target(self, positives: pd.DataFrame) -> NDArray[np.float64]:
         if self.target == "owned":
@@ -127,15 +138,18 @@ class SurpriseModel(ScoringModel):
 
     def fit(self, data: TrainData) -> Self:
         rows = self._training_rows(data)
-        reader = Reader(rating_scale=(float(rows.target.min()), float(rows.target.max())))
-        self.trainset = Dataset.load_from_df(rows, reader).build_full_trainset()
+        reader = Reader(rating_scale=(
+            float(rows.target.min()), float(rows.target.max())))
+        self.trainset = Dataset.load_from_df(
+            rows, reader).build_full_trainset()
         self.algo = self._make_algo()
         self.algo.fit(self.trainset)
         return self
 
     def predict(self, rows: pd.DataFrame) -> NDArray[np.float64]:
         if self.algo is None or self.trainset is None:
-            raise RuntimeError(f"{type(self).__name__}.predict called before fit")
+            raise RuntimeError(
+                f"{type(self).__name__}.predict called before fit")
         u = rows["user_id"].map(self.trainset._raw2inner_id_users)
         i = rows["item_id"].map(self.trainset._raw2inner_id_items)
         # Candidates only contain train users and items, so a miss is a pipeline bug.

@@ -19,7 +19,7 @@ class Split(_Section):
     drop_cold: bool = True
     # Users with fewer rows stay entirely in train. >= 3 so held-out users keep a train row.
     min_per_user: int = Field(3, ge=3)
-    # Only rows with playtime_forever >= this can be held out ("played"); 0 = any owned row.
+    # [split.play] only: prep holds out only rows with playtime_forever >= this
     min_minutes: int = Field(0, ge=0)
 
     @model_validator(mode="after")
