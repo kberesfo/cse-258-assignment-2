@@ -25,7 +25,8 @@ MODELS: dict[str, type[ScoringModel]] = {
 
 
 def build(name: str, cfg: Config, **overrides: Any) -> ScoringModel:
-    """Construct a model from its [models.<name>] settings (plus cfg.seed if it takes one)."""
+    """Construct a model from its [models.<name>] settings, with `overrides` on top
+    (plus cfg.seed and [split.play] min_minutes, if it takes them and they aren't set)."""
     if name not in MODELS:
         raise KeyError(f"unknown model {name!r}; options: {', '.join(MODELS)}")
     cls = MODELS[name]

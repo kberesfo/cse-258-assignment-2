@@ -16,7 +16,8 @@
     },
     "containerEnv": {
         "DATA_DIR": "${containerWorkspaceFolder}/data",
-        "A2_MODELS__BPR__USE_GPU": "true"
+        "A2_MODELS__BPR__USE_GPU": "true",
+        "UV_LINK_MODE": "copy"
     },
     "customizations": {
         "vscode": {
@@ -42,7 +43,9 @@
             }
         }
     },
-    "runArgs": ["--gpus=all"],
+    "runArgs": [
+        "--gpus=all"
+    ],
     "postCreateCommand": "uv sync --locked --extra gpu && make setup",
     "remoteUser": "vscode"
 }

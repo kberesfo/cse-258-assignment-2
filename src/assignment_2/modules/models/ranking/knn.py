@@ -66,7 +66,7 @@ class ItemKNNRanker(ScoringModel):
 
     def predict(self, rows: pd.DataFrame) -> NDArray[np.float64]:
         if self.S is None:
-            raise RuntimeError("ItemKNN.predict called before fit")
+            raise RuntimeError(f"{type(self).__name__}.predict called before fit")
         u_idx = self.users.get_indexer(rows.user_id)  # -1 = user with no positives
         i_idx = self.items.get_indexer(rows.item_id)  # -1 = candidate nobody played
         scores = np.zeros(len(rows))
@@ -115,7 +115,7 @@ class UserKNNRanker(ScoringModel):
 
     def predict(self, rows: pd.DataFrame) -> NDArray[np.float64]:
         if self.R is None:
-            raise RuntimeError("UserKNN.predict called before fit")
+            raise RuntimeError(f"{type(self).__name__}.predict called before fit")
         u_idx = self.users.get_indexer(rows.user_id)
         i_idx = self.items.get_indexer(rows.item_id)
         ok = (u_idx >= 0) & (i_idx >= 0)
