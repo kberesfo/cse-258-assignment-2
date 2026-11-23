@@ -34,6 +34,9 @@ dev = [
     "ruff>=0.17.3",
 ]
 
+[project.optional-dependencies]
+gpu = ["rmm-cu13==26.04.*"]
+
 [project.scripts]
 assignment-2 = "assignment_2.cli:main"
 
