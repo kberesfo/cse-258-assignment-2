@@ -15,8 +15,7 @@ from ..base import ScoringModel
 
 
 class BPRModel(ScoringModel):
-    """BPR-MF: score(u, i) = γ_u · γ_i + b_i, trained so positives (owned or played games)
-    outrank sampled ones."""
+    """BPR-MF: score(u, i) = γ_u · γ_i + b_i; positives (owned or played) outrank sampled games."""
 
     def __init__(
         self,

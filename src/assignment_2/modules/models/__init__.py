@@ -1,4 +1,3 @@
-# models/__init__.py
 from .base import ScoringModel
 from .registry import MODELS, build
 
