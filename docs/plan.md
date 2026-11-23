@@ -274,6 +274,10 @@ validation for every BPR checked: untuned (Hit@10 0.566 vs 0.578), best "played"
 7. Cross-task tests (BPR on B, LFM on A).
 8. Re-run everything on `user_frac = 1.0` for the final numbers. Re-check BPR's factor count
    there (10× the users may support a larger model), then score test once.
+9. *Maybe, for the write-up:* report placement alongside Hit@10 / NDCG@10: Hit@5, median
+   rank of the held-out game (overall and among top-10 hits), and the top-1 rate. All come
+   from per-user ranks (`1 / mrr`), so no change to `evaluate_ranking`; compute them in the
+   notebook for the final models only (medians, not means: misses go out to rank 100).
 
 ## References
 
