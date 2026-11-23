@@ -124,8 +124,11 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 │       │   ├── plots.py      # shared figure style, save(), log_hist()
 │       │   └── similarity.py # Jaccard / cosine / overlap, vectorized; interaction_matrix
 │       └── models/
-│           ├── registry.py   # MODELS and build()
-│           └── ranking/      # ScoringModel interface, TrainData, Surprise models
+│           ├── base.py           # ScoringModel: the interface every model implements
+│           ├── surprise.py       # SurpriseModel + sample_negatives: Surprise plumbing
+│           ├── registry.py
+│           ├── ranking/          # task A models: bpr.py (and kNN later)
+│           └── rating/           # task B models: bias.py, lfm.py (SVDModel)
 ├── tests/
 ├── Makefile
 └── pyproject.toml

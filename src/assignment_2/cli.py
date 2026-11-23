@@ -64,7 +64,7 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
     from assignment_2.modules.data import load_prepped, train_tables
     from assignment_2.modules.data.prep import prepped_dir
     from assignment_2.modules.models import MODELS, build
-    from assignment_2.modules.models.ranking.base import TrainData
+    from assignment_2.modules.models.base import TrainData
 
     names = args.model or list(MODELS)
     unknown = sorted(set(names) - set(MODELS))

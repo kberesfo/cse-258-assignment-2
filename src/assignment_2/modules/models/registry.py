@@ -5,9 +5,9 @@ import inspect
 
 from assignment_2.modules.config import Config
 
-from .ranking.base import ScoringModel
-from .ranking.bias import BiasModel
-from .ranking.lfm import SVDModel
+from .base import ScoringModel
+from .rating.bias import BiasModel
+from .rating.lfm import SVDModel
 
 # from .popularity import PopularityModel
 

@@ -32,3 +32,10 @@ n_epochs = 10
 target = "playtime"     # owned | playtime
 neg_ratio = 4
 n_factors = 50
+
+[models.bpr]
+factors = 64
+learning_rate = 0.01
+regularization = 0.01
+iterations = 100
+positives = "played"

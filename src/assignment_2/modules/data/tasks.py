@@ -11,13 +11,43 @@ A model must never see a pair it is scored on:
 The held-out pairs differ by task, so the filtering is done per task.
 """
 
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Literal
 
 import pandas as pd
 
 Task = Literal["play", "engagement"]
 TASKS: tuple[Task, ...] = ("play", "engagement")
 KEYS = ["user_id", "item_id"]
+
+
+@dataclass(frozen=True)
+class TrainData:
+    """A task's training tables, built by train_tables(t, task)."""
+
+    interactions: pd.DataFrame  # play_train or own_train
+    items: pd.DataFrame
+    bundles: pd.DataFrame
+    reviews: pd.DataFrame  # all reviews minus the task's held-out pairs
+    # (user_id, item_id) pairs never to use as training negatives: the task's held-out
+    # pairs (play: valid/test candidates, incl. their sampled negatives;
+    # engagement: own valid/test).
+    exclude: pd.DataFrame | None = None
+    n_reviews_dropped: int = 0  # reviews removed because they reveal a held-out pair
+
+
+def train_tables(t: dict[str, pd.DataFrame], task: Task) -> TrainData:
+    """Training tables for a task, with its held-out pairs removed."""
+    exclude = held_out_pairs(t, task)
+    reviews = drop_pairs(t["reviews"], exclude)
+    return TrainData(
+        interactions=t["play_train" if task == "play" else "own_train"],
+        items=t["items"],
+        bundles=t["bundles"],
+        reviews=reviews,
+        exclude=exclude,
+        n_reviews_dropped=len(t["reviews"]) - len(reviews),
+    )
 
 
 def drop_pairs(df: pd.DataFrame, pairs: pd.DataFrame) -> pd.DataFrame:
@@ -34,17 +64,3 @@ def held_out_pairs(t: dict[str, pd.DataFrame], task: Task) -> pd.DataFrame:
     else:
         parts = [t["own_valid"], t["own_test"]]
     return pd.concat(parts)[KEYS].drop_duplicates().reset_index(drop=True)
-
-
-def train_tables(t: dict[str, pd.DataFrame], task: Task) -> dict[str, Any]:
-    """Training tables for a task: interactions, reviews, items, bundles, exclude."""
-    exclude = held_out_pairs(t, task)
-    reviews = drop_pairs(t["reviews"], exclude)
-    return {
-        "interactions": t["play_train" if task == "play" else "own_train"],
-        "reviews": reviews,
-        "items": t["items"],
-        "bundles": t["bundles"],
-        "exclude": exclude,
-        "n_reviews_dropped": len(t["reviews"]) - len(reviews),
-    }

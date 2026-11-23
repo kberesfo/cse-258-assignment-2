@@ -107,5 +107,5 @@ def within_user_spearman(users: ArrayLike, y: ArrayLike, pred: ArrayLike) -> pd.
     cp = rp - rp.groupby(d.user_id).transform("mean")
     num = (cy * cp).groupby(d.user_id).sum()
     den = np.sqrt((cy**2).groupby(d.user_id).sum() * (cp**2).groupby(d.user_id).sum())
-    
+
     return (num / den).where(den > 0)
