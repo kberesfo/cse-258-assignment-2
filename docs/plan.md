@@ -67,9 +67,15 @@ would leak held-out pairs).
     popularity alone found it. With popularity weighting and play as the positive, the gap
     is ~3× (median 821 vs 260), so the test measures personalization.
 - **Owned but under 120 minutes:** neither a positive nor a negative in evaluation.
+- **What the protocol rewards:** the held-out game is always one the user owns, and the 99
+  negatives never are, so a model that predicts ownership well gets credit. That's not a
+  leak (the held-out game isn't in training), but it means task A partly rewards "will
+  they own it" as well as "will they play it" (see BPR's positives ablation, §4).
 - **Metrics:** Hit@10, NDCG@10, MRR per user, averaged. 95% bootstrap intervals over
-  users, and paired bootstrap intervals on the difference between a model and its
-  baseline.
+  users (1,000 resamples), and paired bootstrap intervals on the difference between a
+  model and its baseline (`core/evaluate.py`: `evaluate_ranking`, `compare`). Pairing
+  resamples the same users for both models, which roughly halves the interval on a
+  difference (±0.005 Hit@10 vs ±0.012 for one model's score), so small real gaps show up.
 
 ### Task B (engagement)
 
@@ -96,7 +102,8 @@ would leak held-out pairs).
   engagement held-out pairs have one), so `data/tasks.py` drops reviews of each task's
   held-out pairs before any model sees them. Reviews themselves are kept unsplit: no task
   predicts them.
-- Tune on validation; score test once.
+- Tune on validation; score test once. Test has been looked at only as a leak check
+  (does it match validation?), never to choose anything.
 
 ## 3. Models: two ways to adapt latent factors to implicit feedback
 
@@ -104,7 +111,7 @@ Both have the same form, μ + b_u + b_i + γ_u · γ_i. They differ in what they
 
 | | **BPR-MF** | **LFM on log-hours** |
 |---|---|---|
-| Trained on | pairs (u, played game i, non-owned game j) | owned games only |
+| Trained on | pairs (u, owned game i, non-owned game j) | owned games only |
 | Objective | score(i) > score(j) (pairwise, ranking) | squared error on log(1 + minutes) |
 | Assumption about non-owned games | ranks *below* played games (relative) | **none**: never seen in training |
 | Native task | A (ranking) | B (engagement) |
@@ -126,9 +133,8 @@ beyond biases**, while MSE mostly rewards getting the biases right.
 
 ### Training choices to ablate
 
-- Owned games under 120 min, for BPR: included in the matrix as positives ("owned beats
-  not owned"), or left out of it, in which case `implicit` can sample them as negatives
-  (*hard negatives*: owned but not played).
+- ~~Owned games under 120 min, for BPR: positives, or left out (then sampleable as
+  negatives)~~ (done: "owned" positives win; §4).
 - LFM target: log(1 + minutes) vs played ≥ 120 min (0/1).
 - Two-part (hurdle) model for task B: P(played) × E[log minutes | played]. 31% of held-out
   targets are 0, but an item-level hurdle equals the item mean (MSE 5.586 vs 5.587); it can
@@ -156,12 +162,20 @@ All on validation. Task A is scored on the cached `play_valid_candidates`
 | item kNN (cosine, max over history) | 0.493 | 0.304 | 0.266 |
 | **item kNN (Jaccard, max over history)** | **0.497** | **0.303** | **0.264** |
 
-Item kNN is the bar for BPR. Jaccard and cosine are effectively tied (Jaccard ahead on
-Hit@10, cosine level or ahead on NDCG / MRR); paired bootstrap intervals will tell whether
-either difference is real. User kNN beats popularity but trails item kNN by ~0.055 above
-0 minutes (and by 0.17 at 0 minutes, where item–item bundle structure dominates). The
-similarity functions are vectorized in `core/similarity.py`; the sparse item kNN reproduces
-the original pure-Python Jaccard exactly.
+Item kNN (Jaccard) is the bar for BPR. Paired bootstrap at 120 min (`explore_play` §4b,
+1,000 resamples; Δ = row − column, 95% CI):
+
+| Comparison | ΔHit@10 | ΔNDCG@10 |
+|---|---|---|
+| item kNN Jaccard − cosine | +0.005 [−0.001, +0.010] | −0.001 [−0.003, +0.002] |
+| item kNN − play popularity | +0.093 [+0.083, +0.102] | +0.057 [+0.051, +0.063] |
+| item kNN − user kNN | +0.058 [+0.048, +0.066] | +0.035 [+0.029, +0.042] |
+| user kNN − play popularity | +0.035 [+0.030, +0.041] | +0.022 [+0.020, +0.024] |
+
+Jaccard and cosine are statistically tied, so Jaccard stays the default; every other gap is
+real. User kNN trails item kNN by 0.17 at 0 minutes, where item–item bundle structure
+dominates. The similarity functions are vectorized in `core/similarity.py`; the sparse item
+kNN reproduces the original pure-Python Jaccard exactly.
 
 **Task B** (log1p minutes, 6,020 users)
 
@@ -177,6 +191,54 @@ The bias model is the bar for the LFM on both MSE and Spearman. The game matters
 than the user: the item mean removes ~4× more error than the user mean (−4.30 vs −0.99 MSE
 from the global mean). Owner popularity's 0.165 is the bar for BPR on task B.
 
+### Task A models (`task_a_play`)
+
+**BPR-MF** (`models/ranking/bpr.py`, `implicit`, one thread so fits repeat exactly). Tuned
+on validation in stages, 3 seeds per setting; seed noise is ~0.001–0.002 NDCG, so cells
+within ~2 std are ties. Every grid row is saved as `grid_bpr_*.csv`.
+
+| Stage | Finding (NDCG@10, mean of 3 seeds) |
+|---|---|
+| played: factors × reg | regularization dominates: 0.001 and 0.1 both ~0.27, 0.01 ~0.35 |
+| played: reg (fine) | peak at 0.02 (0.362 vs 0.348 at 0.01) |
+| played: factors at 0.02 | 32 – 128 tied; 256 slightly lower → 32 |
+| played: iterations | peak at 100; 200+ overfits (0.339 at 400) |
+| played: iterations × reg | 200 / 0.03 ties 100 / 0.02: longer runs need more reg |
+| played: learning rate | 0.01 (0.005 under-trains, 0.02+ overshoots) |
+| owned: reg | peak at 0.01 (0.384); ~3× the positives need less regularization |
+| owned: factors × iterations | 64 beats 32 (+0.009, ~4 std); 64 = 128 = 256; iterations flat |
+
+**Final BPR:** positives "owned", 64 factors, regularization 0.01, 100 iterations,
+learning rate 0.01, which are the library defaults apart from the positives. The best
+hyperparameters depend on the positives: "played" (fewer positives) needs stronger
+regularization and a smaller model; "owned" supports a larger, less regularized one.
+
+| Model (validation, seed 258) | Hit@10 | NDCG@10 | MRR |
+|---|---|---|---|
+| item kNN (Jaccard) | 0.497 | 0.303 | 0.264 |
+| best "played" BPR (32 factors, reg 0.02) | 0.589 | 0.362 | 0.309 |
+| **final BPR** (owned, 64 factors, reg 0.01) | **0.619** [0.606, 0.631] | **0.388** [0.379, 0.398] | **0.335** [0.325, 0.344] |
+
+| Comparison (paired bootstrap, 95% CI) | ΔHit@10 | ΔNDCG@10 |
+|---|---|---|
+| **final BPR − item kNN** | **+0.122 [+0.106, +0.139]** | **+0.085 [+0.074, +0.097]** |
+| final BPR − user kNN | +0.179 [+0.164, +0.196] | +0.121 [+0.110, +0.132] |
+| owned − played (final vs best "played") | +0.031 [+0.018, +0.043] | +0.027 [+0.018, +0.036] |
+| best "played" − untuned "played" | +0.011 [+0.003, +0.020] | +0.013 [+0.008, +0.019] |
+| untuned BPR (played) − item kNN | +0.080 [+0.065, +0.095] | +0.045 [+0.035, +0.056] |
+
+So of the final model's +0.122 Hit@10 over item kNN, about +0.080 is BPR itself (untuned,
+played positives), +0.011 is tuning, and +0.031 is the choice of positives.
+
+**Why "owned" positives win:** owned-but-unplayed games still show taste (with "played"
+positives, BPR can sample them as *negatives*, teaching that games like ones you own are
+bad), and the protocol partly rewards predicting ownership (§2). Both explanations are
+reported; the second is a limitation, not a leak.
+
+**Leak checks:** no held-out pair appears anywhere in training, and test matches
+validation for every BPR checked: untuned (Hit@10 0.566 vs 0.578), best "played" (0.578 vs
+0.589) and final (0.615 vs 0.619; NDCG 0.382 vs 0.388).
+
 ## 5. Rejected or deferred
 
 - **Treating non-owned games as confident zeros** (pointwise SVD with sampled negatives):
@@ -190,6 +252,9 @@ from the global mean). Owner popularity's 0.165 is the bar for BPR on task B.
 - **Predicting the review `recommend` flag:** 89.1% positive and few reviews.
 - **Bundle and metadata features:** bundles cover 14% of games; metadata is missing for
   several of the most-owned titles. Possible later ablations.
+- **Stricter task A negatives:** add the user's owned-but-unplayed games to the candidate
+  negatives, so a model must pick the game they *played* over ones they merely own. Removes
+  the ownership credit in today's protocol; deferred, a robustness check if time allows.
 
 ## 6. Next steps
 
@@ -197,16 +262,18 @@ from the global mean). Owner popularity's 0.165 is the bar for BPR on task B.
    `[split.engagement]` for task B).
 2. ~~Threshold table, task B tie check, held-out vs train, baselines on the cache~~ (done:
    `explore_play`, `explore_engagement`; similarity vectorized in `core/similarity.py`).
-3. `evaluate_scores` and `compare` (bootstrap intervals) for task A; MSE / MAE /
-   within-user Spearman for task B. First use: is Jaccard vs cosine a real difference?
-4. BPR-MF (`implicit`), with the under-120-minute ablation.
+3. ~~`evaluate_ranking`, `evaluate_engagement` and `compare` (bootstrap intervals)~~ (done:
+   same `(summary, per_user)` shape for both tasks; task B's Spearman skips undefined users).
+4. ~~BPR-MF (`implicit`), with the under-120-minute ablation~~ (done: tuned in
+   `task_a_play`; "owned" positives win; §4).
 5. The negative-free LFM (Surprise, owned games only: `neg_ratio = 0`), with per-task
    model settings.
 6. Baselines as registered models, so `make train` / eval score them like any model:
-   item / user kNN (`ScoringModel` with `metric=` and `agg=`), and task B's global mean
-   and bias model.
+   ~~item / user kNN for task A~~ (done: `item_knn_rank`, `user_knn_rank`); task B's global
+   mean and bias model, and kNN regressors (similarity-weighted playtime) for task B.
 7. Cross-task tests (BPR on B, LFM on A).
-8. Re-run everything on `user_frac = 1.0` for the final numbers.
+8. Re-run everything on `user_frac = 1.0` for the final numbers. Re-check BPR's factor count
+   there (10× the users may support a larger model), then score test once.
 
 ## References
 

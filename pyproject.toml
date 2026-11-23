@@ -8,21 +8,16 @@ dependencies = [
     # Core numerics / ML
     "numpy",
     "scipy",
-    "scikit-learn",
     "pandas",
     "matplotlib",
-    "python-dateutil",
-    "implicit",        # BPR (ch. 5)
-    "scikit-surprise", # SVD latent factor model (ch. 5)
-    "gensim",          # word2vec / item2vec (ch. 8)
-    "nltk",            # PorterStemmer (ch. 8)
+    "implicit==0.7.3", # BPR (ch. 5); pinned: the gpu extra's rmm pin only holds for 0.7.3
+    "scikit-surprise", # bias / SVD latent factor models (ch. 5)
     # Notebook kernel for VS Code's Jupyter extension
     "ipykernel",
-    "demjson3>=3.0.6",
     "tqdm>=4.70.1",
     "pydantic>=2.14.3",
     "pydantic-settings>=2.16.2",
-    "pyarrow>=26.0.1",
+    "pyarrow>=26.0.1",           # parquet engine for the prepped cache
 ]
 
 [dependency-groups]
@@ -33,6 +28,9 @@ dev = [
     "pytest>=9.2.0",
     "ruff>=0.17.3",
 ]
+
+[project.optional-dependencies]
+gpu = ["rmm-cu13==26.04.*"]
 
 [project.scripts]
 assignment-2 = "assignment_2.cli:main"

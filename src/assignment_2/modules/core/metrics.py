@@ -90,3 +90,22 @@ def ranking_per_user(
     np.minimum.at(first_hit, codes[positive], ranks[positive])
 
     return {f"hit@{k}": hits.astype(float), f"ndcg@{k}": dcg / ideal, "mrr": 1 / first_hit}
+
+
+def within_user_spearman(users: ArrayLike, y: ArrayLike, pred: ArrayLike) -> pd.Series:
+    """Spearman ρ between y and pred within each user, indexed by user_id.
+
+    Pearson correlation of within-user ranks (ties get their average rank, as in
+    scipy.stats.spearmanr), for every user in one groupby pass. NaN where y or pred is
+    constant for the user (e.g. all of their held-out games at 0 minutes).
+    """
+    d = pd.DataFrame({"user_id": np.asarray(users), "y": np.asarray(y, dtype=float),
+                      "p": np.asarray(pred, dtype=float)})  # fmt: skip
+    g = d.groupby("user_id")
+    ry, rp = g.y.rank(), g.p.rank()
+    cy = ry - ry.groupby(d.user_id).transform("mean")
+    cp = rp - rp.groupby(d.user_id).transform("mean")
+    num = (cy * cp).groupby(d.user_id).sum()
+    den = np.sqrt((cy**2).groupby(d.user_id).sum() * (cp**2).groupby(d.user_id).sum())
+
+    return (num / den).where(den > 0)

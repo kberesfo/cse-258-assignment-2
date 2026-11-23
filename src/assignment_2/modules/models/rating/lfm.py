@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 from surprise import SVD
 
-from .base import SurpriseModel
+from ..surprise import SurpriseModel
 
 
 class SVDModel(SurpriseModel):

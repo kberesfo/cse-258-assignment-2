@@ -38,6 +38,16 @@ cache, so `load_prepped(get_config())` works as soon as it opens.
 Open the repo in VS Code and choose **Dev Containers: Reopen in Container**. Same setup as
 Codespaces.
 
+**GPU (optional, NVIDIA hosts only).** Pick **CSE 258 A2 (GPU)** when VS Code asks which
+configuration to use (to switch from the default one: **Reopen Folder Locally**, then
+**Reopen in Container**). It installs the `gpu` extra (`uv sync --locked --extra gpu`) and
+sets `A2_MODELS__BPR__USE_GPU=true`, so BPR trains on the GPU (~12× faster on the 10%
+sample); everything else runs on CPU as usual. Check it with
+`uv run python -c "import implicit.gpu; print(implicit.gpu.HAS_CUDA)"` → `True`.
+`rmm-cu13` is pinned to 26.04 because `implicit` 0.7.3's GPU build only loads with
+26.02–26.04; re-test before changing either pin. Requires an NVIDIA driver supporting
+CUDA 13 and the NVIDIA Container Toolkit (or Docker Desktop's WSL2 GPU support).
+
 ### Without a container
 
 Requires [uv](https://docs.astral.sh/uv/).
@@ -91,7 +101,7 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 
 ```
 .
-├── .devcontainer/            # Codespaces / devcontainer config
+├── .devcontainer/            # Codespaces / devcontainer config (gpu/: optional CUDA variant)
 ├── config.toml               # the group's settings: dataset, sample, split, evaluation, models
 ├── data/                     # raw datasets (gitignored, fetched by scripts/get_data)
 ├── artifacts/                # regenerable outputs: prepped cache, trained models (gitignored)
@@ -124,8 +134,11 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 │       │   ├── plots.py      # shared figure style, save(), log_hist()
 │       │   └── similarity.py # Jaccard / cosine / overlap, vectorized; interaction_matrix
 │       └── models/
-│           ├── registry.py   # MODELS and build()
-│           └── ranking/      # ScoringModel interface, TrainData, Surprise models
+│           ├── base.py           # ScoringModel: the interface every model implements
+│           ├── surprise.py       # SurpriseModel + sample_negatives: Surprise plumbing
+│           ├── registry.py
+│           ├── ranking/          # task A models: bpr.py (and kNN later)
+│           └── rating/           # task B models: bias.py, lfm.py (SVDModel)
 ├── tests/
 ├── Makefile
 └── pyproject.toml
@@ -224,8 +237,8 @@ Full details and the reasoning behind them: [`docs/plan.md`](docs/plan.md) §2.
 
 ### Adding a model
 
-1. Subclass `ScoringModel` (`modules/models/ranking/base.py`), or `SurpriseModel` for a
-   Surprise algorithm:
+1. Subclass `ScoringModel` (`modules/models/base.py`), or `SurpriseModel`
+   (`modules/models/surprise.py`) for a Surprise algorithm:
    - `fit(self, data: TrainData) -> Self` receives one task's training tables from
      `train_tables` (train interactions, items, bundles, reviews with held-out pairs removed)
      plus `exclude`, the task's held-out pairs, never to use as training negatives.

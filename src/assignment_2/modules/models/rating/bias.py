@@ -1,6 +1,6 @@
 from surprise import BaselineOnly
 
-from .base import SurpriseModel
+from ..surprise import SurpriseModel
 
 
 class BiasModel(SurpriseModel):

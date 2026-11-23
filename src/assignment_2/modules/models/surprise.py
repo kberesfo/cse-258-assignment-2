@@ -1,14 +1,6 @@
-"""Shared model interface (fit / predict), plus the Surprise plumbing.
+"""Surprise plumbing shared by the bias and SVD models: negative sampling and bulk scoring."""
 
-Every model: `fit(data) -> self`, then `predict(rows) -> scores` aligned to `rows`
-(one float per row). What a score means depends on the task: for play, higher = more
-likely to be played (only the order matters); for engagement, the predicted
-log1p(playtime). `fit` receives a task's TrainData and takes what it needs; `predict`
-receives rows keyed by user_id / item_id. Evaluation only uses this interface.
-"""
-
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from abc import abstractmethod
 from typing import Literal, Self
 
 import numpy as np
@@ -16,27 +8,7 @@ import pandas as pd
 from numpy.typing import NDArray
 from surprise import AlgoBase, Dataset, Reader, Trainset
 
-
-@dataclass(frozen=True)
-class TrainData:
-    """A task's training tables, from data.train_tables(t, task)."""
-
-    interactions: pd.DataFrame  # play_train or own_train
-    items: pd.DataFrame
-    bundles: pd.DataFrame
-    reviews: pd.DataFrame  # all reviews minus the task's held-out pairs
-    # (user_id, item_id) pairs never to use as training negatives: the task's held-out
-    # pairs (play: valid/test candidates, incl. their sampled negatives;
-    # engagement: own valid/test).
-    exclude: pd.DataFrame | None = None
-
-
-class ScoringModel(ABC):
-    @abstractmethod
-    def fit(self, data: TrainData) -> Self: ...
-
-    @abstractmethod
-    def predict(self, rows: pd.DataFrame) -> NDArray[np.float64]: ...
+from .base import ScoringModel, TrainData
 
 
 def sample_negatives(
