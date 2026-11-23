@@ -68,8 +68,10 @@ would leak held-out pairs).
     is ~3× (median 821 vs 260), so the test measures personalization.
 - **Owned but under 120 minutes:** neither a positive nor a negative in evaluation.
 - **Metrics:** Hit@10, NDCG@10, MRR per user, averaged. 95% bootstrap intervals over
-  users, and paired bootstrap intervals on the difference between a model and its
-  baseline.
+  users (1,000 resamples), and paired bootstrap intervals on the difference between a
+  model and its baseline (`core/evaluate.py`: `evaluate_ranking`, `compare`). Pairing
+  resamples the same users for both models, which roughly halves the interval on a
+  difference (±0.005 Hit@10 vs ±0.012 for one model's score), so small real gaps show up.
 
 ### Task B (engagement)
 
@@ -156,12 +158,20 @@ All on validation. Task A is scored on the cached `play_valid_candidates`
 | item kNN (cosine, max over history) | 0.493 | 0.304 | 0.266 |
 | **item kNN (Jaccard, max over history)** | **0.497** | **0.303** | **0.264** |
 
-Item kNN is the bar for BPR. Jaccard and cosine are effectively tied (Jaccard ahead on
-Hit@10, cosine level or ahead on NDCG / MRR); paired bootstrap intervals will tell whether
-either difference is real. User kNN beats popularity but trails item kNN by ~0.055 above
-0 minutes (and by 0.17 at 0 minutes, where item–item bundle structure dominates). The
-similarity functions are vectorized in `core/similarity.py`; the sparse item kNN reproduces
-the original pure-Python Jaccard exactly.
+Item kNN (Jaccard) is the bar for BPR. Paired bootstrap at 120 min (`explore_play` §4b,
+1,000 resamples; Δ = row − column, 95% CI):
+
+| Comparison | ΔHit@10 | ΔNDCG@10 |
+|---|---|---|
+| item kNN Jaccard − cosine | +0.005 [−0.001, +0.010] | −0.001 [−0.003, +0.002] |
+| item kNN − play popularity | +0.093 [+0.083, +0.102] | +0.057 [+0.051, +0.063] |
+| item kNN − user kNN | +0.058 [+0.048, +0.066] | +0.035 [+0.029, +0.042] |
+| user kNN − play popularity | +0.035 [+0.030, +0.041] | +0.022 [+0.020, +0.024] |
+
+Jaccard and cosine are statistically tied, so Jaccard stays the default; every other gap is
+real. User kNN trails item kNN by 0.17 at 0 minutes, where item–item bundle structure
+dominates. The similarity functions are vectorized in `core/similarity.py`; the sparse item
+kNN reproduces the original pure-Python Jaccard exactly.
 
 **Task B** (log1p minutes, 6,020 users)
 
@@ -197,8 +207,9 @@ from the global mean). Owner popularity's 0.165 is the bar for BPR on task B.
    `[split.engagement]` for task B).
 2. ~~Threshold table, task B tie check, held-out vs train, baselines on the cache~~ (done:
    `explore_play`, `explore_engagement`; similarity vectorized in `core/similarity.py`).
-3. `evaluate_scores` and `compare` (bootstrap intervals) for task A; MSE / MAE /
-   within-user Spearman for task B. First use: is Jaccard vs cosine a real difference?
+3. ~~`evaluate_ranking` and `compare` (bootstrap intervals) for task A~~ (done; first use
+   settled Jaccard vs cosine). Still to do: `evaluate_engagement` for task B (MSE / MAE /
+   within-user Spearman, same `(summary, per_user)` shape so `compare` works for both).
 4. BPR-MF (`implicit`), with the under-120-minute ablation.
 5. The negative-free LFM (Surprise, owned games only: `neg_ratio = 0`), with per-task
    model settings.
