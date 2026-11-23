@@ -1,4 +1,4 @@
-"""Shared model interface (fit / predict), plus the Surprise plumbing.
+"""Shared model interface: fit / predict.
 
 Every model: `fit(data) -> self`, then `predict(rows) -> scores` aligned to `rows`
 (one float per row). What a score means depends on the task: for play, higher = more

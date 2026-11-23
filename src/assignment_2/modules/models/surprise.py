@@ -1,3 +1,5 @@
+"""Surprise plumbing shared by the bias and SVD models: negative sampling and bulk scoring."""
+
 from abc import abstractmethod
 from typing import Literal, Self
 

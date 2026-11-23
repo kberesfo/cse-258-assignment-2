@@ -68,13 +68,6 @@ class BPRModel(ScoringModel):
         return self
 
     def predict(self, rows: pd.DataFrame) -> NDArray[np.float64]:
-        # 1. u = self.users.get_indexer(rows.user_id); i = self.items.get_indexer(rows.item_id)
-        #    (-1 = never seen as a positive in training)
-        # 2. ok = (u >= 0) & (i >= 0)
-        # 3. scores = zeros; scores[ok] = row-wise dot product of
-        #    self.model.user_factors[u[ok]] and self.model.item_factors[i[ok]]
-        #    (item_factors has one extra column, the item bias; the dot product includes it)
-        # 4. return scores
         if self.model is None:
             raise RuntimeError("BPRModel.predict called before fit")
         u = self.users.get_indexer(rows.user_id)  # -1 = no positives in training

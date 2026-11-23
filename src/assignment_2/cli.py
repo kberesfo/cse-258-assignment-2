@@ -64,7 +64,6 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
     from assignment_2.modules.data import load_prepped, train_tables
     from assignment_2.modules.data.prep import prepped_dir
     from assignment_2.modules.models import MODELS, build
-    from assignment_2.modules.models.base import TrainData
 
     names = args.model or list(MODELS)
     unknown = sorted(set(names) - set(MODELS))
@@ -76,10 +75,8 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
     t = load_prepped(cfg)  # refuses a cache built with different settings
 
     # The task's training tables, with its held-out pairs removed (see data/tasks.py).
-    tables = train_tables(t, args.task)
-    n_dropped = tables.pop("n_reviews_dropped")
-    print(f"[train] {args.task}: dropped {n_dropped:,} reviews of held-out games")
-    data = TrainData(**tables)
+    data = train_tables(t, args.task)
+    print(f"[train] {args.task}: dropped {data.n_reviews_dropped:,} reviews of held-out games")
 
     # One folder per task: each task trains on its own split, so the models differ.
     out = prepped_dir(cfg) / "models" / args.task

@@ -1,27 +1,26 @@
 # The group's agreed settings. Personal overrides belong in .env or --config.
-dataset = "steam"       # a key in DATASETS (scripts/get_data)
+dataset = "steam" # a key in DATASETS (scripts/get_data)
 seed = 258
 
 [sample]
-user_frac = 0.1         # dev runs on 10% of users; set 1.0 for final results
+user_frac = 0.1 # dev runs on 10% of users; set 1.0 for final results
 
-[split.play]            # task A: rank games the user will play
-min_minutes = 120       # "played" = playtime_forever >= this
+[split.play] # task A: rank games the user will play
+min_minutes = 120 # "played" = playtime_forever >= this
 holdout = "count"
-n_holdout = 1           # leave-one-out, as in SASRec
-min_per_user = 3        # 1 valid + 1 test + >= 1 train
+n_holdout = 1     # leave-one-out, as in SASRec
+min_per_user = 3  # 1 valid + 1 test + >= 1 train
 drop_cold = true
 
-[split.engagement]      # task B: predict log playtime of owned games
+[split.engagement] # task B: predict log playtime of owned games
 holdout = "count"
-n_holdout = 3           # several per user, so within-user rank correlation is defined
-min_per_user = 7        # 3 valid + 3 test + >= 1 train
+n_holdout = 3     # several per user, so within-user rank correlation is defined
+min_per_user = 7  # 3 valid + 3 test + >= 1 train
 drop_cold = true
-
 
 [evaluation]
-n_negatives = 99        # sampled negatives per user in the fixed candidate tables
-negatives = "popularity"   # uniform | popularity
+n_negatives = 99         # sampled negatives per user in the fixed candidate tables
+negatives = "popularity" # uniform | popularity
 
 [models.bias]
 reg_u = 15
@@ -29,13 +28,21 @@ reg_i = 10
 n_epochs = 10
 
 [models.svd]
-target = "playtime"     # owned | playtime
+target = "playtime" # owned | playtime
 neg_ratio = 4
 n_factors = 50
 
-[models.bpr]
-factors = 64
-learning_rate = 0.01
-regularization = 0.01
-iterations = 100
+[models.bpr] # tuned on users_0.1 validation (task_a_play §4–5)
+factors = 64          # 5 (owned): 64 = 128 = 256; smallest kept (played's best: 32)
+learning_rate = 0.01  # 4.6
+regularization = 0.01 # 5 (owned): peak (played's best: 0.02)
+iterations = 100      # owned: flat 100–300; played: 200+ overfits
+positives = "owned"   # 5: beats tuned played on all metrics
+
+[models.item_knn_rank]
+metric = "jaccard"   # tied with cosine (explore_play §4b)
+positives = "played"
+
+[models.user_knn_rank]
+metric = "cosine"
 positives = "played"
