@@ -213,16 +213,22 @@ learning rate 0.01, which are the library defaults apart from the positives. The
 hyperparameters depend on the positives: "played" (fewer positives) needs stronger
 regularization and a smaller model; "owned" supports a larger, less regularized one.
 
-| Result (validation, paired bootstrap, 95% CI) | ΔHit@10 | ΔNDCG@10 |
-|---|---|---|
-| untuned BPR (played) − item kNN | +0.080 [+0.065, +0.095] | +0.045 [+0.035, +0.056] |
-| tuned BPR (played) − item kNN | +0.091 [+0.077, +0.108] | +0.059 [+0.049, +0.069] |
-| tuned (played) − untuned (played) | +0.011 [+0.003, +0.020] | +0.013 [+0.008, +0.019] |
-| owned − played (each at its best reg, 32 factors) | +0.020 [+0.008, +0.032] | +0.017 [+0.008, +0.025] |
+| Model (validation, seed 258) | Hit@10 | NDCG@10 | MRR |
+|---|---|---|---|
+| item kNN (Jaccard) | 0.497 | 0.303 | 0.264 |
+| best "played" BPR (32 factors, reg 0.02) | 0.589 | 0.362 | 0.309 |
+| **final BPR** (owned, 64 factors, reg 0.01) | **0.619** [0.606, 0.631] | **0.388** [0.379, 0.398] | **0.335** [0.325, 0.344] |
 
-Tuned BPR (played): Hit@10 0.589, NDCG@10 0.362, MRR 0.309. Final BPR (owned, 64 factors):
-Hit@10 ≈ 0.627, NDCG@10 ≈ 0.394 (3-seed means); its paired comparison with item kNN comes
-from the final `task_a_play` run.
+| Comparison (paired bootstrap, 95% CI) | ΔHit@10 | ΔNDCG@10 |
+|---|---|---|
+| **final BPR − item kNN** | **+0.122 [+0.106, +0.139]** | **+0.085 [+0.074, +0.097]** |
+| final BPR − user kNN | +0.179 [+0.164, +0.196] | +0.121 [+0.110, +0.132] |
+| owned − played (final vs best "played") | +0.031 [+0.018, +0.043] | +0.027 [+0.018, +0.036] |
+| best "played" − untuned "played" | +0.011 [+0.003, +0.020] | +0.013 [+0.008, +0.019] |
+| untuned BPR (played) − item kNN | +0.080 [+0.065, +0.095] | +0.045 [+0.035, +0.056] |
+
+So of the final model's +0.122 Hit@10 over item kNN, about +0.080 is BPR itself (untuned,
+played positives), +0.011 is tuning, and +0.031 is the choice of positives.
 
 **Why "owned" positives win:** owned-but-unplayed games still show taste (with "played"
 positives, BPR can sample them as *negatives*, teaching that games like ones you own are
@@ -230,7 +236,8 @@ bad), and the protocol partly rewards predicting ownership (§2). Both explanati
 reported; the second is a limitation, not a leak.
 
 **Leak checks:** no held-out pair appears anywhere in training, and test matches
-validation for both the untuned (Hit@10 0.566 vs 0.578) and tuned models (0.578 vs 0.589).
+validation for every BPR checked: untuned (Hit@10 0.566 vs 0.578), best "played" (0.578 vs
+0.589) and final (0.615 vs 0.619; NDCG 0.382 vs 0.388).
 
 ## 5. Rejected or deferred
 
