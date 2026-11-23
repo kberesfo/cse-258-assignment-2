@@ -1,4 +1,3 @@
-# models/registry.py
 """Every model the project can train, by name. Add new models here."""
 
 import inspect
