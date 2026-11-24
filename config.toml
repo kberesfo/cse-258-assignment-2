@@ -22,11 +22,6 @@ drop_cold = true
 n_negatives = 99         # sampled negatives per user in the fixed candidate tables
 negatives = "popularity" # uniform | popularity
 
-[models.bias]
-reg_u = 15
-reg_i = 10
-n_epochs = 10
-
 [models.bias_eng] # task B: μ + b_u + b_i on log1p(minutes), owned games only
 target = "minutes"
 neg_ratio = 0
