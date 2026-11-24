@@ -13,9 +13,11 @@ class SVDModel(SurpriseModel):
         self,
         target: Target = "minutes",
         neg_ratio: int = 0,
+        seed: int = 0,
         **svd_params: Any,  # n_factors, n_epochs, lr_all, reg_all, biased, ...
     ) -> None:
-        super().__init__(target=target, neg_ratio=neg_ratio)
+        super().__init__(target=target, neg_ratio=neg_ratio, seed=seed)
+        SVD(**svd_params)  # fail now on a typo or unknown setting, not at fit time
         self.svd_params = svd_params
 
     def _make_algo(self) -> SVD:

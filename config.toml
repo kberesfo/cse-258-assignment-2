@@ -29,10 +29,16 @@ reg_u = 5          # explore_engagement §4: λ = 5 best on validation MSE
 reg_i = 5
 n_epochs = 10
 
-[models.lfm] # task B: + γ_u · γ_i (Surprise SVD); untuned
+[models.lfm] # tuned on users_0.1 validation (task_b_engagement §2)
 target = "minutes"
 neg_ratio = 0
-n_factors = 50
+n_factors = 100  # 2.4: 100 = 200 = 400; smallest kept
+reg_bu = 0.02    # 2.2: bias regularization doesn't matter (0.02 = 0.05)
+reg_bi = 0.02
+reg_pu = 0.15    # 2.3–2.4: best at every size; biases and factors need different reg
+reg_qi = 0.15
+n_epochs = 20    # 2.5: Surprise default; 80 × lr 0.002 ties on MSE, worse on Spearman
+lr_all = 0.005
 
 [models.bpr] # tuned on users_0.1 validation (task_a_play §4–5)
 factors = 64          # 5 (owned): 64 = 128 = 256; smallest kept (played's best: 32)

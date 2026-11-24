@@ -71,7 +71,8 @@ class SurpriseModel(ScoringModel):
     so a non-owned game at 0 would teach "not owned" = "never played".
 
     Subclasses implement `_make_algo()` and `_score(u, i)`. Scoring uses the fitted arrays
-    directly: much faster than `algo.predict()` per row, and unclipped (no artificial ties).
+    directly: much faster than `algo.predict()` per row. Unclipped (no artificial ties),
+    except that "minutes" predictions are floored at 0, since log1p(minutes) can't be negative.
     """
 
     def __init__(
@@ -137,4 +138,6 @@ class SurpriseModel(ScoringModel):
                 f"{int(missing.sum()):,} rows have users/items not seen in training, "
                 f"e.g. {rows.loc[missing, ['user_id', 'item_id']].iloc[0].tolist()}"
             )
-        return self._score(u.to_numpy(np.int64), i.to_numpy(np.int64))
+        pred = self._score(u.to_numpy(np.int64), i.to_numpy(np.int64))
+        # log1p(minutes) can't be negative; clipping only removes impossible predictions
+        return np.maximum(pred, 0.0) if self.target == "minutes" else pred
