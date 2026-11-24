@@ -135,12 +135,11 @@ beyond biases**, while MSE mostly rewards getting the biases right.
 
 - ~~Owned games under 120 min, for BPR: positives, or left out (then sampleable as
   negatives)~~ (done: "owned" positives win; §4).
-- LFM target: log(1 + minutes) vs played ≥ 120 min (0/1).
-- Two-part (hurdle) model for task B: P(played) × E[log minutes | played]. 31% of held-out
-  targets are 0, but an item-level hurdle equals the item mean (MSE 5.586 vs 5.587); it can
-  only help once P(played) depends on the user, so it belongs with the models.
+- LFM target: log(1 + minutes) vs played ≥ 120 min (0/1). *Deferred.*
+- ~~Two-part (hurdle) model for task B: P(played) × E[log minutes | played]~~ (checked, not
+  pursued: no signal ranks never-played games better than the LFM itself; §4, §5).
 - Implicit ALS (Hu, Koren & Volinsky 2008) with playtime as confidence, as a third
-  latent-factor variant if time allows.
+  latent-factor variant. *Deferred.*
 - Similarity baselines: Jaccard vs cosine for item kNN; user kNN with only each user's
   top-k neighbors, or normalized by the game's player count (the plain sum favors widely
   played games).
@@ -191,6 +190,10 @@ The bias model is the bar for the LFM on both MSE and Spearman. The game matters
 than the user: the item mean removes ~4× more error than the user mean (−4.30 vs −0.99 MSE
 from the global mean). Owner popularity's 0.165 is the bar for BPR on task B.
 
+The registered bias model (`bias_eng`) reproduces this row exactly. With task B predictions
+clipped at 0 (log1p(minutes) can't be negative; §4) it scores 5.007 / 1.765 / 0.542, which
+is the bar used in `task_b_engagement`.
+
 ### Task A models (`task_a_play`)
 
 **BPR-MF** (`models/ranking/bpr.py`, `implicit`, one thread so fits repeat exactly). Tuned
@@ -239,11 +242,79 @@ reported; the second is a limitation, not a leak.
 validation for every BPR checked: untuned (Hit@10 0.566 vs 0.578), best "played" (0.578 vs
 0.589) and final (0.615 vs 0.619; NDCG 0.382 vs 0.388).
 
+### Task B models (`task_b_engagement`)
+
+**LFM** (`lfm`: Surprise `SVD` in `models/rating/lfm.py`): μ + b_u + b_i + γ_u · γ_i,
+trained on owned games only with target log1p(minutes) and no sampled negatives. Task B
+predictions are clipped at 0, which removes impossible negative predictions (bias model
+−0.020 MSE, LFM −0.007). Tuned on validation in stages; fits repeat exactly for a seed, and
+seed noise is ~0.003–0.03 MSE and ~0.001–0.003 Spearman. Every grid row is saved as
+`grid_lfm_*.csv`.
+
+**Selection rule** (set before stage 2): lowest validation MSE, provided Spearman is not
+clearly below the bias model's (an LFM that only wins through its biases hasn't shown
+personalization).
+
+| Stage | Finding (MSE / within-user Spearman) |
+|---|---|
+| factors × reg_all (seed 0) | Surprise's defaults overfit (50 factors, reg 0.02: 5.38 / 0.507); best MSE 4.819 at reg 0.1, but Spearman peaks at reg 0.2 (0.558): biases and factors want different regularization |
+| bias vs factor reg (seed 0) | separating them helps (4.772); bias regularization doesn't matter (0.02 = 0.05) → 0.02 |
+| factor reg × factors (3 seeds) | factor reg 0.15 is best on MSE and ties the best Spearman; 100 factors beat 50 (4.684 vs 4.715) |
+| more factors (3 seeds) | 100 = 200 = 400 (4.684 / 4.681 / 4.685) → 100 |
+| epochs × learning rate (3 seeds) | roughly epochs × lr matters; 80 × 0.002 ties the default 20 × 0.005 on MSE (4.671 vs 4.684) and is worse on Spearman → defaults |
+
+**Final LFM:** 100 factors, bias regularization 0.02 (`reg_bu`, `reg_bi`), factor
+regularization 0.15 (`reg_pu`, `reg_qi`), 20 epochs, learning rate 0.005.
+
+| Model (validation, seed 258) | MSE | MAE | Within-user Spearman |
+|---|---|---|---|
+| bias model (`bias_eng`) | 5.007 [4.907, 5.104] | 1.765 [1.746, 1.785] | 0.542 [0.526, 0.556] |
+| untuned LFM (Surprise defaults, 50 factors) | 5.300 [5.170, 5.423] | 1.769 [1.747, 1.792] | 0.516 [0.501, 0.530] |
+| **final LFM** | **4.690** [4.589, 4.787] | **1.700** [1.680, 1.720] | **0.556** [0.542, 0.571] |
+
+| Comparison (paired bootstrap, 95% CI) | ΔMSE | ΔMAE | ΔSpearman |
+|---|---|---|---|
+| **final LFM − bias model** | **−0.317 [−0.354, −0.280]** | **−0.065 [−0.073, −0.058]** | **+0.015 [+0.006, +0.023]** |
+| final LFM − untuned LFM | −0.610 [−0.681, −0.536] | −0.070 [−0.082, −0.057] | +0.041 [+0.029, +0.052] |
+
+- **The LFM beats the bias model on every metric** (−6.3% MSE). The Spearman gain shows
+  γ_u · γ_i personalizes (within a user only it can reorder games), but it is small: the
+  step from owner popularity to the item mean was 0.165 → 0.536, and the factors add 0.015.
+  Which game it is explains most of how much people play it.
+- **Tuning was essential:** untuned, the LFM is worse than the bias model; tuning gains about
+  twice the LFM's whole margin over it.
+- **In plain terms,** a prediction is typically off by a factor of 4.0 in (1 + minutes)
+  (bias model 4.4, global mean 28); 72% are within 10×. Error in minutes is misleading here
+  (the global mean has the lowest median minutes error, because a third of the truths are 0).
+
+**Where the error comes from** (`task_b_engagement` §4, row-level):
+
+- The target has two peaks (31% never played, and a broad hump of played games); the model
+  has one, between them. It is well calibrated (in every prediction decile the mean truth
+  matches the mean prediction) but shrinks toward the middle at both ends (prediction std
+  2.17 vs 3.12).
+- Never-played games are 41% of the squared error from 31% of rows; games played 10 h+ are
+  31% from 24% of rows. The LFM beats the bias model in every playtime bucket, most at the
+  extremes.
+- A perfect never-played detector would cut MSE from 4.692 to 2.780 (−41%), but no signal
+  ranks never-played games better than the LFM's own prediction (AUC 0.865; item zero rate
+  0.829, already in the LFM through b_i; item kNN ~0.70; user zero rate 0.674). Its hedge is
+  close to the best squared error allows, so a hurdle model built on these signals is not
+  pursued (§5).
+
 ## 5. Rejected or deferred
 
 - **Treating non-owned games as confident zeros** (pointwise SVD with sampled negatives):
-  it trains the model to treat the very games it should recommend as disliked. The current
-  Surprise models still do this (`neg_ratio = 4`) until the negative-free LFM is in.
+  it trains the model to treat the very games it should recommend as disliked. The original
+  Surprise models did this (`neg_ratio = 4`); they are removed, and task B's models train on
+  owned games only.
+- **Hurdle model / zero predictor for task B:** zeros are the largest source of error, but
+  the LFM already ranks them best (AUC 0.865 vs ≤ 0.829 for user, item and kNN signals), so
+  there is no information for a first stage to add. Future work: a classifier combining
+  these signals on top of the LFM.
+- **kNN regressors for task B:** item kNN on co-ownership (similarity-weighted mean of the
+  user's log-minutes on similar games) scores MSE 8.65, far worse than the bias model: it
+  ignores how much the game itself is played, which is most of the signal.
 - **Low playtime as "dislike"** for the ownership task: playtime is a snapshot with no
   purchase date, so "under 2 hours" can mean disliked, not started yet, or just bought.
   Refunded games never appear in the data at all.
@@ -266,20 +337,28 @@ validation for every BPR checked: untuned (Hit@10 0.566 vs 0.578), best "played"
    same `(summary, per_user)` shape for both tasks; task B's Spearman skips undefined users).
 4. ~~BPR-MF (`implicit`), with the under-120-minute ablation~~ (done: tuned in
    `task_a_play`; "owned" positives win; §4).
-5. The negative-free LFM (Surprise, owned games only: `neg_ratio = 0`), with per-task
-   model settings.
-6. Baselines as registered models, so `make train` / eval score them like any model:
-   ~~item / user kNN for task A~~ (done: `item_knn_rank`, `user_knn_rank`); task B's global
-   mean and bias model, and kNN regressors (similarity-weighted playtime) for task B.
-7. Cross-task tests (BPR on B, LFM on A).
-8. Re-run everything on `user_frac = 1.0` for the final numbers. Re-check BPR's factor count
-   there (10× the users may support a larger model), then score test once.
+5. ~~The negative-free LFM (Surprise, owned games only: `neg_ratio = 0`), with per-task
+   model settings~~ (done: `lfm`, tuned in `task_b_engagement`; §4).
+6. ~~Baselines as registered models~~ (done: `item_knn_rank`, `user_knn_rank` for task A,
+   `bias_eng` for task B; the global mean stays a notebook baseline; kNN regressors
+   rejected, §5).
+7. *Optional, if time:* cross-task tests (BPR on B, LFM on A).
+8. Re-run on `user_frac = 1.0` for the final numbers: final models only, with the settings
+   tuned on the 10% sample (re-tuning on full data is dropped for time and reported as a
+   limitation), then score test once per task.
+9. *Maybe, for the write-up:* report placement alongside Hit@10 / NDCG@10: Hit@5, median
+   rank of the held-out game (overall and among top-10 hits), and the top-1 rate. All come
+   from per-user ranks (`1 / mrr`), so no change to `evaluate_ranking`; compute them in the
+   notebook for the final models only (medians, not means: misses go out to rank 100).
+10. Workbook (`workbook.ipynb`, one section per rubric item) and the ~20-minute video.
 
 ## References
 
 - Hu, Koren & Volinsky, *Collaborative Filtering for Implicit Feedback Datasets*, ICDM 2008.
 - Rendle et al., *BPR: Bayesian Personalized Ranking from Implicit Feedback*, UAI 2009.
 - Kang & McAuley, *Self-Attentive Sequential Recommendation*, ICDM 2018 (Steam data; 100-candidate protocol).
+- Koren, Bell & Volinsky, *Matrix Factorization Techniques for Recommender Systems*, IEEE
+  Computer 2009 (latent factor models with biases).
 - Krichene & Rendle, *On Sampled Metrics for Item Recommendation*, KDD 2020.
 - Sarwar, Karypis, Konstan & Riedl, *Item-Based Collaborative Filtering Recommendation
   Algorithms*, WWW 2001.

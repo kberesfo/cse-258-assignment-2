@@ -1,6 +1,6 @@
 from surprise import BaselineOnly
 
-from ..surprise import SurpriseModel
+from ..surprise import SurpriseModel, Target
 
 
 class BiasModel(SurpriseModel):
@@ -12,11 +12,11 @@ class BiasModel(SurpriseModel):
 
     def __init__(
         self,
-        reg_u: float = 15,
-        reg_i: float = 10,
+        reg_u: float = 5,
+        reg_i: float = 5,
         n_epochs: int = 10,
-        target: str = "playtime",
-        neg_ratio: int = 4,
+        target: Target = "minutes",
+        neg_ratio: int = 0,
         seed: int = 0,
     ) -> None:
         super().__init__(target=target, neg_ratio=neg_ratio, seed=seed)
