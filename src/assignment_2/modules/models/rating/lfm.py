@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 from surprise import SVD
 
-from ..surprise import SurpriseModel
+from ..surprise import SurpriseModel, Target
 
 
 class SVDModel(SurpriseModel):
@@ -11,7 +11,7 @@ class SVDModel(SurpriseModel):
 
     def __init__(
         self,
-        target: str = "playtime",
+        target: Target = "minutes",
         neg_ratio: int = 4,
         seed: int = 0,
         **svd_params: Any,  # n_factors, n_epochs, lr_all, reg_all, biased, ...

@@ -1,6 +1,6 @@
 from surprise import BaselineOnly
 
-from ..surprise import SurpriseModel
+from ..surprise import SurpriseModel, Target
 
 
 class BiasModel(SurpriseModel):
@@ -15,13 +15,13 @@ class BiasModel(SurpriseModel):
         reg_u: float = 15,
         reg_i: float = 10,
         n_epochs: int = 10,
-        target: str = "playtime",
+        target: Target = "minutes",
         neg_ratio: int = 4,
         seed: int = 0,
     ) -> None:
         super().__init__(target=target, neg_ratio=neg_ratio, seed=seed)
         self.reg_u, self.reg_i, self.n_epochs = reg_u, reg_i, n_epochs
-
+        
     def _make_algo(self) -> BaselineOnly:
         options = {"method": "als", "reg_u": self.reg_u, "reg_i": self.reg_i,
                    "n_epochs": self.n_epochs}  # fmt: skip

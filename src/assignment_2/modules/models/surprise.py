@@ -1,7 +1,7 @@
 """Surprise plumbing shared by the bias and SVD models: negative sampling and bulk scoring."""
 
 from abc import abstractmethod
-from typing import Literal, Self
+from typing import Literal, Self, get_args
 
 import numpy as np
 import pandas as pd
@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 from surprise import AlgoBase, Dataset, Reader, Trainset
 
 from .base import ScoringModel, TrainData
+
+Target = Literal["owned", "playtime", "minutes"]
 
 
 def sample_negatives(
@@ -58,12 +60,15 @@ def sample_negatives(
 
 
 class SurpriseModel(ScoringModel):
-    """Fits a Surprise algorithm on positives + sampled negatives and scores rows in bulk.
+    """Fits a Surprise algorithm on owned games (plus sampled negatives) and scores rows in bulk.
 
     Training rows: every owned train game, with target
-        "owned":    1
-        "playtime": 1 + log1p(playtime_forever)   (owned-but-unplayed stays above 0)
-    plus `neg_ratio` sampled non-owned games per positive, with target 0.
+        "owned":    1                              (task A: will they own it?)
+        "playtime": 1 + log1p(playtime_forever)    (task A: owned-but-unplayed stays above 0)
+        "minutes":  log1p(playtime_forever)        (task B: what evaluate_engagement scores)
+    "owned" / "playtime" add `neg_ratio` sampled non-owned games per positive, target 0.
+    "minutes" uses owned games only (neg_ratio = 0): task B only scores games the user owns,
+    so a non-owned game at 0 would teach "not owned" = "never played".
 
     Subclasses implement `_make_algo()` and `_score(u, i)`. Scoring uses the fitted arrays
     directly: much faster than `algo.predict()` per row, and unclipped (no artificial ties).
@@ -71,12 +76,19 @@ class SurpriseModel(ScoringModel):
 
     def __init__(
         self,
-        target: Literal["owned", "playtime"] = "playtime",
+        target: Target = "playtime",
         neg_ratio: int = 4,
         seed: int = 0,
     ) -> None:
-        if neg_ratio < 1:
-            raise ValueError("neg_ratio must be >= 1 (without negatives every target is > 0)")
+        if target not in get_args(Target):
+            raise ValueError(f"target must be one of {get_args(Target)}, got {target!r}")
+        if target == "minutes" and neg_ratio != 0:
+            raise ValueError('target "minutes" trains on owned games only: set neg_ratio = 0')
+        if target != "minutes" and neg_ratio < 1:
+            raise ValueError(
+                f"target {target!r} needs negatives (neg_ratio >= 1): without them every "
+                "training target is > 0"
+            )
         self.target, self.neg_ratio, self.seed = target, neg_ratio, seed
         self.algo: AlgoBase | None = None
         self.trainset: Trainset | None = None
@@ -88,20 +100,22 @@ class SurpriseModel(ScoringModel):
     def _score(self, u: NDArray[np.int64], i: NDArray[np.int64]) -> NDArray[np.float64]: ...
 
     def _target(self, positives: pd.DataFrame) -> NDArray[np.float64]:
-        if self.target == "owned":
-            return np.ones(len(positives))
-        return 1 + np.log1p(positives["playtime_forever"].to_numpy(np.float64))
+        minutes = np.log1p(positives["playtime_forever"].to_numpy(np.float64))
+        match self.target:
+            case "owned":
+                return np.ones(len(positives))
+            case "playtime":
+                return 1 + minutes
+            case "minutes":
+                return minutes
 
     def _training_rows(self, data: TrainData) -> pd.DataFrame:
         pos = data.interactions
+        rows = pos[["user_id", "item_id"]].assign(target=self._target(pos))
+        if self.neg_ratio == 0:
+            return rows.reset_index(drop=True)
         neg = sample_negatives(pos, data.exclude, self.neg_ratio, self.seed)
-        return pd.concat(
-            [
-                pos[["user_id", "item_id"]].assign(target=self._target(pos)),
-                neg.assign(target=0.0),
-            ],
-            ignore_index=True,
-        )
+        return pd.concat([rows, neg.assign(target=0.0)], ignore_index=True)
 
     def fit(self, data: TrainData) -> Self:
         rows = self._training_rows(data)

@@ -15,11 +15,13 @@ from .rating.lfm import SVDModel
 
 
 MODELS: dict[str, type[ScoringModel]] = {
+    # Task A (play): ranking
     "bpr": BPRModel,
-    "bias": BiasModel,
-    "svd": SVDModel,
     "item_knn_rank": ItemKNNRanker,
     "user_knn_rank": UserKNNRanker,
+    # Task B (engagement): log1p(minutes), owned games only
+    "bias_eng": BiasModel,
+    "lfm": SVDModel,
 }
 
 

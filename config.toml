@@ -27,9 +27,16 @@ reg_u = 15
 reg_i = 10
 n_epochs = 10
 
-[models.svd]
-target = "playtime" # owned | playtime
-neg_ratio = 4
+[models.bias_eng] # task B: μ + b_u + b_i on log1p(minutes), owned games only
+target = "minutes"
+neg_ratio = 0
+reg_u = 5          # explore_engagement §4: λ = 5 best on validation MSE
+reg_i = 5
+n_epochs = 10
+
+[models.lfm] # task B: + γ_u · γ_i (Surprise SVD); untuned
+target = "minutes"
+neg_ratio = 0
 n_factors = 50
 
 [models.bpr] # tuned on users_0.1 validation (task_a_play §4–5)
