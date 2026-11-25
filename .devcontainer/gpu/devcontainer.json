@@ -17,6 +17,7 @@
     "containerEnv": {
         "DATA_DIR": "${containerWorkspaceFolder}/data",
         "A2_MODELS__BPR__USE_GPU": "true",
+        "A2_SAMPLE__USER_FRAC": "1.0",
         "UV_LINK_MODE": "copy"
     },
     "customizations": {

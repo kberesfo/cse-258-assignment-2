@@ -91,22 +91,26 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
 
 
 def cmd_eval(cfg: Config, args: argparse.Namespace) -> None:
-    from assignment_2.modules.results import score_trained, write_metrics
+    from assignment_2.modules.results import score_trained, write_comparisons, write_metrics
 
     results = score_trained(cfg, args.split)
     path = write_metrics(cfg, args.split, results)
+    comparisons = write_comparisons(cfg, args.split)
     for task, models in results.items():
         for name, s in models.items():
             line = "  ".join(
                 f"{m} {v.value:.4f} [{v.ci_low:.4f}, {v.ci_high:.4f}]" for m, v in s.items()
             )
             print(f"[eval] {task}/{args.split}/{name}: {line}")
-    print(f"[eval] -> {path}")
+    print(f"[eval] -> {path}, {comparisons}")
 
 
 def cmd_figures(cfg: Config, args: argparse.Namespace) -> None:
-    # Figures are made in the notebooks (core/plots.py); kept as a stage so `make` runs.
-    print("[figures] made in the notebooks; nothing to do")
+    from assignment_2.modules.results import plot_metrics
+    from assignment_2.modules.summaries import data_summaries
+
+    for path in data_summaries(cfg) + plot_metrics(cfg):
+        print(f"[figures] -> {path}")
 
 
 def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
@@ -147,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p = add("eval", cmd_eval, "score each task's trained models -> results/metrics.json")
     p.add_argument("--split", default="valid", choices=["valid", "test"])
-    add("figures", cmd_figures, "no-op: figures are made in the notebooks")
+    add("figures", cmd_figures, "data summaries + results figures -> results/summaries, figures")
     add("models", cmd_models, "list registered models")
     return parser
 
