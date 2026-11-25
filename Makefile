@@ -85,8 +85,9 @@ sync:
 	$(RUN) jupytext --sync notebooks/*.ipynb
 
 # Run with the project's env so imports from src/ resolve; outputs are saved
-# into the html so graders don't need to execute anything.
-workbook: results
+# into the html so graders don't need to execute anything. The workbook reads only the
+# committed results/ (from `make results` + `make final`), so it needs no data or training.
+workbook:
 	@mkdir -p $(SUB)
 	$(RUN) jupyter nbconvert --to html --execute $(NB) \
 		--ExecutePreprocessor.kernel_name=python3 \

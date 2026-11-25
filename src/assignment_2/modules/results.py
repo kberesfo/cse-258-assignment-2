@@ -171,7 +171,7 @@ def plot_metrics(cfg: Config) -> list[Path]:
                 ax.bar(x, d.value, width, yerr=err, capsize=3, label=split)
             ax.set_xticks(range(len(models)), models)
             ax.set_title(metric)
-        axes[0].legend()
+        fig.legend(*axes[0].get_legend_handles_labels(), loc="upper right", ncol=len(splits))
         fig.suptitle(f"Task {'A (play)' if task == 'play' else 'B (engagement)'}: "
                      f"{cfg.sample.tag}, 95% bootstrap intervals")  # fmt: skip
         fig.tight_layout()
