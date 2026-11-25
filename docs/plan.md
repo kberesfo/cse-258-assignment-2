@@ -1,7 +1,9 @@
 # Plan: predicting play on Steam
 
-How we got to the current approach, and what we're building next. Numbers are from the
-10% user sample (`users_0.1`) and will be re-checked on the full data.
+How we got to the current approach and what we found. Numbers in §1–§5 are from the 10%
+user sample (`users_0.1`), where every choice was made; the final full-data results (test
+scored once) are in §4, "Final results". The workbook (`notebooks/workbook.ipynb`) is the
+write-up.
 
 ## 1. Task
 
@@ -43,7 +45,8 @@ We started with "predict which games a user owns." The EDA argued against it:
 ### Why task B is its own task
 
 Engagement is only weakly related to popularity: across games with ≥ 5 owners, owners vs
-median log playtime has Spearman ρ = 0.19 (play rate 0.20, playtime among players 0.13).
+median log playtime has Spearman ρ = 0.19 on the 10% sample (play rate 0.20, playtime among
+players 0.13), and about 0.02 on the full data (workbook §2).
 Predicting how long someone plays an owned game is not just re-learning which games are
 popular: within a user, owner popularity orders their held-out games poorly (Spearman
 0.165), while each game's average playtime orders them well (0.536).
@@ -125,6 +128,8 @@ played game; the LFM makes no assumption at all. Each model is tested on both ta
   (does it order a user's owned games by playtime?).
 - **LFM on task A:** rank candidates by predicted hours (does predicting engagement
   transfer to recommending?). Its limitation: it never saw a non-owned game in training.
+
+*These cross-task tests were not run (dropped for time; §6).*
 
 Within one user, b_u is the same for every game, so a bias model orders a user's games
 exactly as the item averages do (Spearman 0.540 vs 0.536). Only γ_u · γ_i can reorder a
@@ -302,6 +307,42 @@ regularization 0.15 (`reg_pu`, `reg_qi`), 20 epochs, learning rate 0.005.
   close to the best squared error allows, so a hurdle model built on these signals is not
   pursued (§5).
 
+### Final results (full data)
+
+The final models and the strongest baseline of each task, retrained with the settings
+chosen above on all 70,912 users (10,978 games, 5.1M owned pairs; ~60k evaluation users
+per task) and scored once on test (`make results`, `make final`). Everything below is in
+`results/` (`metrics.json`, `comparisons.csv`, `summaries/`).
+
+| Task A | split | Hit@10 | NDCG@10 | MRR |
+|---|---|---|---|---|
+| item kNN (Jaccard) | valid | 0.499 | 0.305 | 0.266 |
+| item kNN (Jaccard) | test | 0.498 | 0.304 | 0.265 |
+| **BPR** | valid | 0.657 | 0.413 | 0.354 |
+| **BPR** | test | **0.658** [0.654, 0.662] | **0.413** [0.411, 0.416] | **0.355** [0.352, 0.358] |
+| BPR − item kNN (paired) | test | +0.160 [+0.155, +0.165] | +0.110 [+0.106, +0.113] | +0.089 [+0.086, +0.092] |
+
+| Task B | split | MSE | MAE | Within-user Spearman |
+|---|---|---|---|---|
+| bias model | valid | 5.065 | 1.771 | 0.531 |
+| bias model | test | 5.062 | 1.772 | 0.525 |
+| **LFM** | valid | 4.693 | 1.694 | 0.559 |
+| **LFM** | test | **4.680** [4.646, 4.715] | **1.694** [1.687, 1.701] | **0.557** [0.553, 0.562] |
+| LFM − bias model (paired) | test | −0.382 [−0.394, −0.368] | −0.078 [−0.081, −0.076] | +0.032 [+0.029, +0.034] |
+
+- **Test matches validation** for every model: no sign of overfitting to the split that
+  chose every setting.
+- **BPR gains from 10× the data** (test Hit@10 0.658 vs 0.619 on the 10% validation); item
+  kNN doesn't (0.498 vs 0.497). BPR puts the played game first for 21.6% of users (item kNN
+  15.5%); its median rank is 5 of 100 (item kNN 11).
+- **The LFM's margin over the bias model widens** (Spearman +0.032 vs +0.015 on 10%). Error
+  analysis on test matches the 10% findings: typically off by 4.0× (bias model 4.4×);
+  never-played games are 38% of the squared error; a perfect never-played detector would
+  cut MSE to 2.887, and the LFM's own prediction ranks never-played games best (AUC 0.867).
+- **User kNN isn't in the full run:** its user × user similarity doesn't fit in memory at
+  70k users; its 10% results above stand.
+- Full-data fit times: BPR 4 s (GPU), item kNN 2 s, bias model 20 s, LFM 34 s.
+
 ## 5. Rejected or deferred
 
 - **Treating non-owned games as confident zeros** (pointwise SVD with sampled negatives):
@@ -342,15 +383,13 @@ regularization 0.15 (`reg_pu`, `reg_qi`), 20 epochs, learning rate 0.005.
 6. ~~Baselines as registered models~~ (done: `item_knn_rank`, `user_knn_rank` for task A,
    `bias_eng` for task B; the global mean stays a notebook baseline; kNN regressors
    rejected, §5).
-7. *Optional, if time:* cross-task tests (BPR on B, LFM on A).
-8. Re-run on `user_frac = 1.0` for the final numbers: final models only, with the settings
-   tuned on the 10% sample (re-tuning on full data is dropped for time and reported as a
-   limitation), then score test once per task.
-9. *Maybe, for the write-up:* report placement alongside Hit@10 / NDCG@10: Hit@5, median
-   rank of the held-out game (overall and among top-10 hits), and the top-1 rate. All come
-   from per-user ranks (`1 / mrr`), so no change to `evaluate_ranking`; compute them in the
-   notebook for the final models only (medians, not means: misses go out to rank 100).
-10. Workbook (`workbook.ipynb`, one section per rubric item) and the ~20-minute video.
+7. ~~Cross-task tests (BPR on B, LFM on A)~~ (dropped for time).
+8. ~~Re-run on `user_frac = 1.0` for the final numbers~~ (done: final models with the
+   settings tuned on the 10% sample, test scored once; §4 "Final results". Re-tuning on the
+   full data was dropped for time and is reported as a limitation).
+9. ~~Placement alongside Hit@10 / NDCG@10~~ (done: Hit@5, median rank and top-1 rate in
+   workbook §4.3, from `results/summaries/play_test_ranks.csv`).
+10. Workbook and the ~20-minute video: in progress (owners in `docs/tasking.md`).
 
 ## References
 
