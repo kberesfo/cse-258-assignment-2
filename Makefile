@@ -48,7 +48,8 @@ $(STAMP)/prep: $(SRC) $(wildcard $(DATA)/*/*.gz) | data
 	@mkdir -p $(@D) && touch $@
 
 $(STAMP)/train: $(STAMP)/prep
-	$(CLI) train
+	$(CLI) train --task play
+	$(CLI) train --task engagement
 	@touch $@
 
 $(STAMP)/eval: $(STAMP)/train

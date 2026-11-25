@@ -25,6 +25,15 @@ MODELS: dict[str, type[ScoringModel]] = {
 }
 
 
+# What `assignment-2 train` / `eval` run for each task: the final model and its baselines.
+# user_knn_rank isn't here: its user × user similarity doesn't fit in memory on the full
+# data (its 10% numbers are in task_a_play). Cross-task runs: pass --model explicitly.
+TASK_MODELS: dict[str, tuple[str, ...]] = {
+    "play": ("bpr", "item_knn_rank"),
+    "engagement": ("lfm", "bias_eng"),
+}
+
+
 def build(name: str, cfg: Config, **overrides: Any) -> ScoringModel:
     """Construct a model from its [models.<name>] settings, with `overrides` on top
     (plus cfg.seed and [split.play] min_minutes, if it takes them and they aren't set)."""
