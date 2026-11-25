@@ -1,11 +1,11 @@
 """Command-line entry point: one subcommand per pipeline stage.
 
     uv run assignment-2 prep
-    uv run assignment-2 train                            # task A (play), every registered model
-    uv run assignment-2 train --task engagement --model svd
+    uv run assignment-2 train                            # task A (play): its TASK_MODELS
+    uv run assignment-2 train --task engagement --model lfm
     uv run assignment-2 models                           # list registered models
-    uv run assignment-2 eval                             # not implemented yet
-    uv run assignment-2 figures                          # not implemented yet
+    uv run assignment-2 eval                             # both tasks, validation -> metrics.json
+    uv run assignment-2 eval --split test                # once, when models are frozen
 
 Every subcommand accepts --data-dir / --art-dir / --results-dir / --seed, so the
 Makefile can pass them in any order. Stage code lives in assignment_2.modules and is
@@ -63,9 +63,9 @@ def cmd_prep(cfg: Config, args: argparse.Namespace) -> None:
 def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
     from assignment_2.modules.data import load_prepped, train_tables
     from assignment_2.modules.data.prep import prepped_dir
-    from assignment_2.modules.models import MODELS, build
+    from assignment_2.modules.models import MODELS, TASK_MODELS, build
 
-    names = args.model or list(MODELS)
+    names = args.model or list(TASK_MODELS[args.task])
     unknown = sorted(set(names) - set(MODELS))
     if unknown:
         sys.exit(f"unknown model(s): {', '.join(unknown)} (see `assignment-2 models`)")
@@ -91,11 +91,26 @@ def cmd_train(cfg: Config, args: argparse.Namespace) -> None:
 
 
 def cmd_eval(cfg: Config, args: argparse.Namespace) -> None:
-    raise NotImplementedError("evaluation is being settled in notebooks; see core/evaluate.py")
+    from assignment_2.modules.results import score_trained, write_comparisons, write_metrics
+
+    results = score_trained(cfg, args.split)
+    path = write_metrics(cfg, args.split, results)
+    comparisons = write_comparisons(cfg, args.split)
+    for task, models in results.items():
+        for name, s in models.items():
+            line = "  ".join(
+                f"{m} {v.value:.4f} [{v.ci_low:.4f}, {v.ci_high:.4f}]" for m, v in s.items()
+            )
+            print(f"[eval] {task}/{args.split}/{name}: {line}")
+    print(f"[eval] -> {path}, {comparisons}")
 
 
 def cmd_figures(cfg: Config, args: argparse.Namespace) -> None:
-    raise NotImplementedError("figures are made in the notebooks for now (core/plots.py)")
+    from assignment_2.modules.results import plot_metrics
+    from assignment_2.modules.summaries import data_summaries
+
+    for path in data_summaries(cfg) + plot_metrics(cfg):
+        print(f"[figures] -> {path}")
 
 
 def cmd_models(cfg: Config, args: argparse.Namespace) -> None:
@@ -131,10 +146,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=TASKS,
         help="play (task A, ranking) or engagement (task B, log playtime); default: play",
     )
-    p.add_argument("--model", action="append", help="model to train (repeatable; default: all)")
-    p = add("eval", cmd_eval, "score trained models on the fixed split (not implemented yet)")
+    p.add_argument(
+        "--model", action="append", help="model to train (repeatable; default: the task's models)"
+    )
+    p = add("eval", cmd_eval, "score each task's trained models -> results/metrics.json")
     p.add_argument("--split", default="valid", choices=["valid", "test"])
-    add("figures", cmd_figures, "plots for the slides (not implemented yet)")
+    add("figures", cmd_figures, "data summaries + results figures -> results/summaries, figures")
     add("models", cmd_models, "list registered models")
     return parser
 

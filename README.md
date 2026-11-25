@@ -11,7 +11,14 @@ Steam v1 Australian users data.
 - **B (engagement):** given that a user owns a game, predict how long they play it, as
   log(1 + minutes). MSE, MAE, and within-user Spearman.
 
-Why these tasks, the protocol, and the baselines to beat: [`docs/plan.md`](docs/plan.md).
+**Results (full data, test, 95% intervals):** BPR puts the played game in the top 10 for
+65.8% of users vs 49.8% for item kNN (+0.160 Hit@10 [+0.155, +0.165]); a latent factor
+model cuts MSE on log playtime from 5.062 to 4.680 vs a bias model and orders each user's
+games better (within-user Spearman +0.032 [+0.029, +0.034]).
+
+Why these tasks, the protocol, and how we got here: [`docs/plan.md`](docs/plan.md). Metric
+definitions: [`docs/formulas.md`](docs/formulas.md). Who's doing what before submission:
+[`docs/tasking.md`](docs/tasking.md).
 
 Deliverables (see [`docs/`](docs/) for the full spec):
 
@@ -48,6 +55,10 @@ sample); everything else runs on CPU as usual. Check it with
 26.02–26.04; re-test before changing either pin. Requires an NVIDIA driver supporting
 CUDA 13 and the NVIDIA Container Toolkit (or Docker Desktop's WSL2 GPU support).
 
+The GPU container also sets `A2_SAMPLE__USER_FRAC=1.0`: it is the **full-data training
+environment** (`make results`, `make final`), not for exploration. The tuning notebooks
+expect the 10% sample, and `task_a_play`'s user kNN doesn't fit in memory on the full data.
+
 ### Without a container
 
 Requires [uv](https://docs.astral.sh/uv/).
@@ -71,12 +82,12 @@ downloaded data changes.
 | `make setup`     | `data` + `prep`: everything a fresh environment needs               |
 | `make data`      | Download the dataset named in `config.toml` into `data/`            |
 | `make prep`      | Sample users, split, build candidate tables → `artifacts/steam/<tag>/` |
-| `make train`     | Fit all registered models on task A → `artifacts/steam/<tag>/models/play/` |
-| `make eval`      | Score models on validation → `results/metrics.json` *(not implemented yet)* |
-| `make figures`   | Plots for the slides *(not implemented yet; figures come from notebooks)* |
+| `make train`     | Fit each task's models (`TASK_MODELS`) → `artifacts/steam/<tag>/models/<task>/` |
+| `make eval`      | Score them on validation → `results/metrics.json`, `comparisons.csv`, `summaries/` |
+| `make figures`   | Data summaries + results charts → `results/summaries/`, `results/figures/` |
 | `make results`   | `prep` + `train` + `eval` + `figures`                               |
-| `make final`     | Also score the test split; run once models are frozen               |
-| `make workbook`  | Execute the notebook → `submit/workbook.html`                       |
+| `make final`     | Also score the test split; run once, when models are frozen         |
+| `make workbook`  | Execute the notebook from the committed `results/` → `submit/workbook.html` (no data needed) |
 | `make check`     | Run the autograder's checks, including the video download           |
 | `make submit`    | `final` + `workbook` + `check`                                      |
 | `make lint`      | Ruff lint and format check                                          |
@@ -90,8 +101,10 @@ The CLI can also be called directly:
 ```bash
 uv run assignment-2 --help
 uv run assignment-2 models                     # list registered models
-uv run assignment-2 train --model svd          # train one model (default: all) on task A
-uv run assignment-2 train --task engagement    # task B; models go to models/engagement/
+uv run assignment-2 train                      # task A's models (bpr, item_knn_rank)
+uv run assignment-2 train --task engagement    # task B's models (lfm, bias_eng)
+uv run assignment-2 train --model bpr          # one model (repeatable)
+uv run assignment-2 eval --split test          # score test (once!) -> results/
 uv run assignment-2 prep --seed 1              # any setting can be overridden per run
 ```
 
@@ -105,15 +118,15 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 ├── config.toml               # the group's settings: dataset, sample, split, evaluation, models
 ├── data/                     # raw datasets (gitignored, fetched by scripts/get_data)
 ├── artifacts/                # regenerable outputs: prepped cache, trained models (gitignored)
-├── results/                  # committed outputs: metrics.json, figures/
-├── docs/                     # assignment spec, plans
+├── results/                  # committed outputs of the full-data run (see "Results" below)
+├── docs/                     # assignment spec, plan.md, formulas.md (metrics), tasking.md
 ├── notebooks/
-│   ├── workbook.ipynb            # the submission: one section per rubric item
+│   ├── workbook.ipynb            # the submission: one section per rubric item; reads results/ only
 │   ├── eda.ipynb                 # exploratory analysis feeding the EDA section
 │   ├── explore_play.ipynb        # task A: threshold choice and baselines
 │   ├── explore_engagement.ipynb  # task B: holdout checks, metric coverage, baselines
-│   ├── task_a_play.ipynb         # task A models: BPR-MF, ablations, LFM on A
-│   ├── task_b_engagement.ipynb   # task B models: LFM, hurdle, BPR on B
+│   ├── task_a_play.ipynb         # task A models: kNN baselines, BPR tuning, positives ablation
+│   ├── task_b_engagement.ipynb   # task B models: bias model, LFM tuning, error analysis
 │   └── scratch/<name>/           # personal exploration; never imported from
 ├── scripts/
 │   ├── get_data/             # dataset registry + downloader
@@ -121,6 +134,8 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 ├── src/assignment_2/
 │   ├── cli.py                # subcommands: prep, train, eval, figures, models
 │   └── modules/
+│       ├── results.py        # eval: score trained models -> metrics.json, comparisons.csv
+│       ├── summaries.py      # small CSVs of everything the workbook and slides plot
 │       ├── config/           # settings (pydantic-settings), loaded from config.toml
 │       ├── data/             # loading, sampling, splitting, candidate tables, cache
 │       │   ├── steam.py      # Steam loader: raw files -> tidy tables
@@ -130,14 +145,15 @@ uv run assignment-2 prep --seed 1              # any setting can be overridden p
 │       │   └── tasks.py      # train_tables(): a task's training tables, leaks removed
 │       ├── core/
 │       │   ├── metrics.py    # per-user ranking metrics (Hit, NDCG, MRR), MSE, MAE
-│       │   ├── evaluate.py   # bootstrap CIs and model comparison (in progress)
+│       │   ├── evaluate.py   # evaluate_ranking / evaluate_engagement, bootstrap CIs, compare
+│       │   ├── grid.py       # run_grid / summarize: hyperparameter grids with a progress bar
 │       │   ├── plots.py      # shared figure style, save(), log_hist()
 │       │   └── similarity.py # Jaccard / cosine / overlap, vectorized; interaction_matrix
 │       └── models/
 │           ├── base.py           # ScoringModel: the interface every model implements
 │           ├── surprise.py       # SurpriseModel + sample_negatives: Surprise plumbing
-│           ├── registry.py
-│           ├── ranking/          # task A models: bpr.py (and kNN later)
+│           ├── registry.py       # MODELS (name -> class), TASK_MODELS (what make trains), build()
+│           ├── ranking/          # task A models: bpr.py, knn.py (item / user kNN)
 │           └── rating/           # task B models: bias.py, lfm.py (SVDModel)
 ├── tests/
 ├── Makefile
@@ -193,8 +209,27 @@ If `config.toml` changes (seed, `[sample]`, `[split.*]`, `[evaluation]`), `load_
 ### Development sample
 
 `[sample] user_frac = 0.1` keeps a fixed, hash-based 10% of users with their whole
-libraries, so `prep` takes seconds. Figures saved from a sample get the tag in their file name
-(`games_per_user.users_0.1.png`). **Set `user_frac = 1.0` for final results.**
+libraries, so `prep` takes seconds. Figures and summaries saved from a sample get the tag in
+their file name (`games_per_user.users_0.1.png`). Final results use all users: the GPU
+container sets `A2_SAMPLE__USER_FRAC=1.0` (or put it in your `.env`; `config.toml` stays at
+0.1 for everyone).
+
+### Results (committed)
+
+`make results` / `make final` on the full data write everything the workbook and slides
+need to `results/`, so nobody else needs the full data:
+
+| File                                   | Contents                                                     |
+| -------------------------------------- | ------------------------------------------------------------ |
+| `metrics.json`                         | every model's metrics on valid and test, with 95% bootstrap intervals |
+| `comparisons.csv`                      | final model − baseline per task, paired bootstrap intervals, `real` flag |
+| `summaries/*.csv`                      | dataset stats, per-game and per-user aggregates, playtime / review histograms, task A rank counts, task B error analysis |
+| `figures/*.png`                        | results charts (`play_results`, `engagement_results`) and EDA figures |
+
+```python
+import pandas as pd
+per_game = pd.read_csv("../results/summaries/per_game.csv")   # from notebooks/
+```
 
 ---
 
@@ -246,7 +281,8 @@ Full details and the reasoning behind them: [`docs/plan.md`](docs/plan.md) §2.
      the order matters (higher = more likely to be played); for task B it's the predicted
      log(1 + minutes).
    - The first line of the class docstring is shown by `assignment-2 models`.
-2. Register it in `MODELS` in `modules/models/registry.py`.
+2. Register it in `MODELS` in `modules/models/registry.py` (and in `TASK_MODELS` if
+   `make train` / `make eval` should run it).
 3. Put hyperparameters in `config.toml` under `[models.<name>]`; they're passed to the
    constructor by name, plus `seed` if the constructor accepts one.
 4. Run `uv run assignment-2 train --model <name>` (add `--task engagement` for task B).
@@ -256,8 +292,9 @@ cache, so every model is compared on identical rows.
 
 ### Notebooks
 
-- **`workbook.ipynb` is shared.** Coordinate before editing it, and keep cells short:
-  import, call, display.
+- **`workbook.ipynb` is shared.** Each section has an owner (`docs/tasking.md`); edit only
+  yours, on your own branch, and keep cells short: import, call, display. It reads only
+  `results/`, so `make workbook` works on any machine without the data.
 - `notebooks/scratch/<name>/` is yours. Experiment freely; move anything worth keeping
   into `src/`. Clear outputs from scratch notebooks before committing.
 - Start each notebook with `use_style()` from `core/plots.py`, and save figures with `save()`.
@@ -275,8 +312,9 @@ cache, so every model is compared on identical rows.
 
 ## Submitting
 
-1. Set `[sample] user_frac = 1.0`, then `make submit` builds `submit/workbook.html` and runs
-   the checks.
+1. In the GPU container (full data), `make results` then `make final` (done: test is
+   scored, `results/` committed). Then `make workbook` builds `submit/workbook.html` from
+   `results/`, on any machine.
 2. Upload the mp4 to Google Drive, set sharing to **Anyone with the link**, and paste the
    link as the only line of `submit/video_url.txt`.
 3. Run `make check` again, then upload `workbook.html` and `video_url.txt` to Gradescope.

@@ -48,7 +48,8 @@ $(STAMP)/prep: $(SRC) $(wildcard $(DATA)/*/*.gz) | data
 	@mkdir -p $(@D) && touch $@
 
 $(STAMP)/train: $(STAMP)/prep
-	$(CLI) train
+	$(CLI) train --task play
+	$(CLI) train --task engagement
 	@touch $@
 
 $(STAMP)/eval: $(STAMP)/train
@@ -84,8 +85,9 @@ sync:
 	$(RUN) jupytext --sync notebooks/*.ipynb
 
 # Run with the project's env so imports from src/ resolve; outputs are saved
-# into the html so graders don't need to execute anything.
-workbook: results
+# into the html so graders don't need to execute anything. The workbook reads only the
+# committed results/ (from `make results` + `make final`), so it needs no data or training.
+workbook:
 	@mkdir -p $(SUB)
 	$(RUN) jupyter nbconvert --to html --execute $(NB) \
 		--ExecutePreprocessor.kernel_name=python3 \
@@ -118,4 +120,4 @@ clean:
 	rm -rf $(ART) $(SUB)/workbook.html
 
 clean-all: clean
-	rm -rf $(RES)/metrics.json $(RES)/figures $(HIST)
+	rm -rf $(RES)/metrics.json $(RES)/comparisons.csv $(RES)/summaries $(RES)/figures $(HIST)
