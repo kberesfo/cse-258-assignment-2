@@ -120,4 +120,4 @@ clean:
 	rm -rf $(ART) $(SUB)/workbook.html
 
 clean-all: clean
-	rm -rf $(RES)/metrics.json $(RES)/figures $(HIST)
+	rm -rf $(RES)/metrics.json $(RES)/comparisons.csv $(RES)/summaries $(RES)/figures $(HIST)
