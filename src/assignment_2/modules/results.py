@@ -38,6 +38,14 @@ N_BOOT = 1000
 Summaries = dict[str, dict[str, dict[str, Metric]]]  # task -> model -> metric -> Metric
 
 
+def results_path(cfg: Config, name: str) -> Path:
+    """results/<name> for the full data; a dev sample gets its tag in the name
+    (metrics.users_0.1.json), so 10% runs never overwrite the committed full-data results."""
+    stem, ext = name.rsplit(".", 1)
+    tag = "" if cfg.sample.tag == "full" else f".{cfg.sample.tag}"
+    return cfg.paths.results_dir / f"{stem}{tag}.{ext}"
+
+
 def eval_rows(t: dict[str, pd.DataFrame], task: str, split: Split) -> pd.DataFrame:
     """The fixed rows a task is scored on: task A's candidate table, task B's held-out games."""
     return t[f"play_{split}_candidates"] if task == "play" else t[f"own_{split}"]
@@ -85,7 +93,7 @@ def score_trained(cfg: Config, split: Split, tasks: tuple[str, ...] = TASKS) -> 
 def write_metrics(cfg: Config, split: Split, results: Summaries) -> Path:
     """Add `split`'s results to metrics.json, keeping the other split's if from the same run
     settings (sample and seed); otherwise start fresh."""
-    path = cfg.paths.metrics
+    path = results_path(cfg, "metrics.json")
     run = {"sample": cfg.sample.tag, "seed": cfg.seed}
     data = json.loads(path.read_text()) if path.is_file() else {}
     if {k: data.get(k) for k in run} != run:
@@ -101,7 +109,7 @@ def write_metrics(cfg: Config, split: Split, results: Summaries) -> Path:
 
 def load_metrics(cfg: Config) -> pd.DataFrame:
     """metrics.json as a table: one row per (task, split, model), value and 95% CI columns."""
-    data = json.loads(cfg.paths.metrics.read_text())
+    data = json.loads(results_path(cfg, "metrics.json").read_text())
     rows = [
         {"task": task, "split": split, "model": name, "metric": m, **v}
         for task in TASKS
@@ -137,7 +145,7 @@ def write_comparisons(cfg: Config, split: Split, tasks: tuple[str, ...] = TASKS)
                     "difference": d.value, "ci_low": d.ci_low, "ci_high": d.ci_high,
                     "real": d.ci_low > 0 or d.ci_high < 0,
                 })  # fmt: skip
-    path = cfg.paths.results_dir / "comparisons.csv"
+    path = results_path(cfg, "comparisons.csv")
     new = pd.DataFrame(rows)
     if path.is_file():
         old = pd.read_csv(path)

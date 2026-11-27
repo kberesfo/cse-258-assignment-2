@@ -224,3 +224,8 @@ __marimo__/
 /results_history/
 /submit/workbook.html
 *.mp4
+
+# Dev-sample (10%) results: only the full-data results/ are committed
+results/*.users_*.json
+results/*.users_*.csv
+results/summaries/*.users_*.csv

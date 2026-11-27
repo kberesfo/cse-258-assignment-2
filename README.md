@@ -86,10 +86,10 @@ downloaded data changes.
 | `make eval`      | Score them on validation → `results/metrics.json`, `comparisons.csv`, `summaries/` |
 | `make figures`   | Data summaries + results charts → `results/summaries/`, `results/figures/` |
 | `make results`   | `prep` + `train` + `eval` + `figures`                               |
-| `make final`     | Also score the test split; run once, when models are frozen         |
+| `make final`     | Also score the test split; run once, when models are frozen (done)  |
 | `make workbook`  | Execute the notebook from the committed `results/` → `submit/workbook.html` (no data needed) |
 | `make check`     | Run the autograder's checks, including the video download           |
-| `make submit`    | `final` + `workbook` + `check`                                      |
+| `make submit`    | `workbook` + `check` (no retraining: `results/` is already final)   |
 | `make lint`      | Ruff lint and format check                                          |
 | `make fmt`       | Auto-fix lint and formatting                                        |
 | `make test`      | Run tests                                                           |

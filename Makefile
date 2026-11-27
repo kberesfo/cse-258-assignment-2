@@ -11,7 +11,7 @@
 #   make sync       pair/sync notebooks with jupytext
 #   make workbook   execute notebooks/workbook.ipynb   -> submit/workbook.html
 #   make check      verify the submission files the way the autograder does
-#   make submit     final + workbook + check
+#   make submit     workbook + check (results/ is already final: no retraining)
 #   make lint / fmt / test
 
 RUN      ?= uv run
@@ -99,7 +99,9 @@ workbook:
 check:
 	$(RUN) python scripts/check_submission $(SUB)
 
-submit: final workbook check
+# The full-data results are committed (`make results` + `make final`, once, in the GPU
+# container), so submitting only builds the workbook from them and checks the files.
+submit: workbook check
 	@echo "Upload from $(SUB)/:" && ls -1 $(SUB)/workbook.html $(SUB)/video_url.txt
 
 # ── quality ─────────────────────────────────────────────────────────────────

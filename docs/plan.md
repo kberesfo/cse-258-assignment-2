@@ -395,7 +395,7 @@ per task) and scored once on test (`make results`, `make final`). Everything bel
 
 - Hu, Koren & Volinsky, *Collaborative Filtering for Implicit Feedback Datasets*, ICDM 2008.
 - Rendle et al., *BPR: Bayesian Personalized Ranking from Implicit Feedback*, UAI 2009.
-- Kang & McAuley, *Self-Attentive Sequential Recommendation*, ICDM 2018 (Steam data; 100-candidate protocol).
+- Kang & McAuley, *Self-Attentive Sequential Recommendation*, ICDM 2018 (Steam review data; 100-candidate protocol).
 - Koren, Bell & Volinsky, *Matrix Factorization Techniques for Recommender Systems*, IEEE
   Computer 2009 (latent factor models with biases).
 - Krichene & Rendle, *On Sampled Metrics for Item Recommendation*, KDD 2020.

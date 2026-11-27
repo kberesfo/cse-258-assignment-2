@@ -116,7 +116,7 @@ rank 100 and would dominate a mean.
   can't see.
 - **One held-out game per user** (leave-one-out) makes every metric a function of a single
   rank, so all three are easy to read and to compare between models.
-- **Comparable to prior work on this data.** SASRec, which introduced this Steam data, uses
+- **Comparable to prior work on this data.** SASRec, on a larger Steam review dataset, uses
   Hit@10 and NDCG@10 on the held-out item ranked against 100 sampled negatives (Kang &
   McAuley 2018); we use the same metrics on 1 + 99 candidates.
 - **Popularity-weighted negatives** make the test about personalization. With uniform
